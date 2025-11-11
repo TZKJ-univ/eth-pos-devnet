@@ -43,7 +43,7 @@ services:
 
   prysm:
     container_name: prysm-1
-    image: "gcr.io/prysmaticlabs/prysm/beacon-chain:v6.1.2"
+    image: "prysmaticlabs/prysm-beacon-chain:v6.1.2"
     deploy:
       resources:
         limits:
@@ -85,7 +85,7 @@ services:
 
   validator:
     container_name: validator-1
-    image: "gcr.io/prysmaticlabs/prysm/validator:v6.1.2"
+    image: "prysmaticlabs/prysm-validator:v6.1.2"
     deploy:
       resources:
         limits:
