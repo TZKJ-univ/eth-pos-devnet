@@ -1,0 +1,9 @@
+# Enforce LF on configs/scripts to avoid Windows CRLF (\r) issues in containers
+* text=auto eol=lf
+*.yml eol=lf
+*.yaml eol=lf
+*.json eol=lf
+*.mjs eol=lf
+*.sh eol=lf
+*.env eol=lf
+Makefile eol=lf
