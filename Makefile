@@ -34,8 +34,7 @@ start-validators:
 
 fresh:
 	$(MAKE) reset
-	# ワーカーアカウント資金供給（.env自動生成）
-	node ./scripts/genesis-fund-workers.mjs --count 300 --eth 200
+	node ./scripts/genesis-fund-workers.mjs
 	$(MAKE) init
 	$(MAKE) start
 	# Wait for EL and CL readiness

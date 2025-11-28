@@ -33,7 +33,7 @@ const INFLIGHT_PER_WORKER = Number(process.env.INFLIGHT_PER_WORKER || 4);
 const TARGET_TPS = Number(process.env.TARGET_TPS || 0); // 0 = unlimited
 const BUCKET_INTERVAL_MS = Number(process.env.BUCKET_INTERVAL_MS || 100);
 const BURST_MULTIPLIER = Number(process.env.BURST_MULTIPLIER || 2);
-const VALUE_ETH = process.env.VALUE_ETH || '0.02';
+const VALUE_ETH = process.env.VALUE_ETH || '0.001';
 const GAS_LIMIT = Number(process.env.GAS_LIMIT || 160000);
 const GAS_PRICE_GWEI = Number(process.env.GAS_PRICE_GWEI || 1);
 const URL_OFFSET = Number(process.env.URL_OFFSET || 0);

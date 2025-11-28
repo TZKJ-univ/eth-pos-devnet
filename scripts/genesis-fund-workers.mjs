@@ -44,7 +44,7 @@ function pkForIndex(i, offset) {
 
 function toWeiDecimal({ eth, wei }) {
   if (wei) return BigInt(wei).toString(10);
-  const e = eth ? String(eth) : '200';
+  const e = eth ? String(eth) : '100000'; // デフォルトを100000ETHに増額
   return parseEther(e).toString();
 }
 
