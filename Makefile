@@ -166,4 +166,10 @@ downup-set3:
 
 .PHONY: downup-set3-every
 downup-set3-every:
-	bash -c 'RESTART_INTERVAL_SEC=${RESTART_INTERVAL_SEC:-10800}; while true; do sleep $$RESTART_INTERVAL_SEC; $(MAKE) downup-set3; done'
+	$(RESTART_DEFAULT_ENV) bash -c 'if [ -z "$$RESTART_INTERVAL_SEC" ] || [ "$$RESTART_INTERVAL_SEC" -le 0 ]; then \
+	  echo "RESTART_INTERVAL_SEC is not set or invalid!"; exit 1; fi; \
+	while true; do \
+	  echo "[downup-set3-every] Sleeping for $$RESTART_INTERVAL_SEC seconds..."; \
+	  sleep $$RESTART_INTERVAL_SEC; \
+	  $(MAKE) downup-set3; \
+	done'
