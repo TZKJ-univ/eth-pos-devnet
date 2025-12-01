@@ -109,7 +109,7 @@ function launchNode(i) {
   };
   // Failoverさせるため、各子に全ENDPOINTSを渡す（load-forward側がURL_OFFSETで分散）
   env.RPC_URLS = endpoints.join(',');
-  const proc = spawn('node', ['scripts/load-forward.mjs'], { env, stdio: ['ignore', 'pipe', 'pipe'] });
+  const proc = spawn('node', ['--max-old-space-size=8192', 'scripts/load-forward.mjs'], { env, stdio: ['ignore', 'pipe', 'pipe'] });
   const child = { idx: i, proc, endpoint: endpoints[i] };
   children.push(child);
   proc.stdout.on('data', d => handleOutput(child, d.toString(), false));

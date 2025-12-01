@@ -86,6 +86,14 @@ function pickHttpUrl() {
   return http || 'http://127.0.0.1:8545';
 }
 
+let globalReceiptProvider = null;
+function getReceiptProvider() {
+  if (!globalReceiptProvider) {
+    globalReceiptProvider = new JsonRpcProvider(pickHttpUrl());
+  }
+  return globalReceiptProvider;
+}
+
 function createTokenBucket() {
   if (!(TARGET_TPS > 0)) return null;
   const capacity = Math.max(1, Math.ceil(TARGET_TPS * BURST_MULTIPLIER));
@@ -167,7 +175,7 @@ const RECEIPT_DRAIN_MS = Number(process.env.RECEIPT_DRAIN_MS || 0);
 const USE_RAW_SEND = process.env.USE_RAW_SEND === '1' || process.env.USE_RAW_SEND === 'true';
 const DIRECT_TRANSFER = process.env.DIRECT_TRANSFER === '1' || process.env.DIRECT_TRANSFER === 'true';
 
-async function runWorker(i, endAt, stats, receiptProvider, bucket) {
+async function runWorker(i, endAt, stats, _unused, bucket) {
   let urlIdx = 0;
   let url = urlForWorker(i);
   let provider = createProvider(url);
@@ -217,7 +225,7 @@ async function runWorker(i, endAt, stats, receiptProvider, bucket) {
         stats.sent++;
         // Use receiptProvider for wait to avoid WS subscribe churn
         const h = sent.hash || sent; // raw send returns hash string wrapper
-        receiptProvider.waitForTransaction(h).then(() => { stats.succ++; }).catch(() => {});
+        getReceiptProvider().waitForTransaction(h).then(() => { stats.succ++; }).catch(() => {});
       } catch (e) {
         stats.fail++;
         const msg = (e && e.message) || 'error';
@@ -273,7 +281,15 @@ async function main() {
   const net = await primary.getNetwork();
   console.log(`chainId=${net.chainId} block=${await primary.getBlockNumber()}`);
   // Dedicated HTTP provider for receipt polling to avoid WS subscription races
-  const receiptProvider = new JsonRpcProvider(pickHttpUrl());
+  const receiptProvider = getReceiptProvider();
+  // Rotate receipt provider every 10 minutes to clear internal cache/listeners
+  const rotationInterval = setInterval(() => {
+    const old = globalReceiptProvider;
+    globalReceiptProvider = new JsonRpcProvider(pickHttpUrl());
+    // Destroy old one after delay to allow pending calls to finish
+    setTimeout(() => { try { old.destroy(); } catch {} }, 10000);
+  }, 60000 * 10);
+
   const bucket = createTokenBucket();
   if (bucket) {
     console.log(`Rate limiting enabled: TARGET_TPS=${TARGET_TPS} capacity=${bucket.capacity} interval=${BUCKET_INTERVAL_MS}ms addPerTick≈${Math.max(1, Math.floor(TARGET_TPS * BUCKET_INTERVAL_MS / 1000))}`);
@@ -285,7 +301,7 @@ async function main() {
   // Dedicated HTTP provider for receipt polling to avoid WS subscription races
   const tasks = [];
   for (let i = 0; i < WORKERS; i++) {
-    tasks.push(runWorker(i, endAt, stats, receiptProvider, bucket));
+    tasks.push(runWorker(i, endAt, stats, null, bucket));
   }
   // Hard stop watchdog (in case a send hangs beyond duration)
   const watchdog = setTimeout(() => {
@@ -296,6 +312,7 @@ async function main() {
   }, DURATION_SEC * 1000 + GRACE_EXIT_MS);
 
   await Promise.allSettled(tasks);
+  clearInterval(rotationInterval);
   // 送信完了後、任意でレシート取り込みの猶予を与える
   if (RECEIPT_DRAIN_MS > 0) {
     await sleep(RECEIPT_DRAIN_MS);
