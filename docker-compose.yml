@@ -7,7 +7,7 @@ services:
     deploy:
       resources:
         limits:
-          cpus: "2.0"
+          cpus: "1.5"
           memory: 8G
     command:
       - --networkid=48815
@@ -47,7 +47,7 @@ services:
     deploy:
       resources:
         limits:
-          cpus: "2.0"
+          cpus: "1.5"
           memory: 8G
     command:
       - --networkid=48815
@@ -88,7 +88,7 @@ services:
     deploy:
       resources:
         limits:
-          cpus: "2.0"
+          cpus: "1.5"
           memory: 8G
     command:
       - --networkid=48815
@@ -130,7 +130,7 @@ services:
     deploy:
       resources:
         limits:
-          cpus: "2.0"
+          cpus: "1.0"
           memory: 8G
     command:
       - --datadir=/prysm/beacon
@@ -173,7 +173,7 @@ services:
     deploy:
       resources:
         limits:
-          cpus: "2.0"
+          cpus: "1.0"
           memory: 8G
     command:
       - --datadir=/prysm/beacon
@@ -220,7 +220,7 @@ services:
     deploy:
       resources:
         limits:
-          cpus: "2.0"
+          cpus: "1.0"
           memory: 8G
     command:
       - --datadir=/prysm/beacon
@@ -266,7 +266,7 @@ services:
     deploy:
       resources:
         limits:
-          cpus: "2.0"
+          cpus: "0.5"
           memory: 8G
     command:
       - --beacon-rpc-provider=prysm:4000
@@ -290,7 +290,7 @@ services:
     deploy:
       resources:
         limits:
-          cpus: "2.0"
+          cpus: "0.5"
           memory: 8G
     command:
       - --beacon-rpc-provider=prysm-2:4000
@@ -314,7 +314,7 @@ services:
     deploy:
       resources:
         limits:
-          cpus: "2.0"
+          cpus: "0.5"
           memory: 8G
     command:
       - --beacon-rpc-provider=prysm-3:4000

@@ -47,8 +47,8 @@ services:
     deploy:
       resources:
         limits:
-          cpus: "2.0"
-          memory: 8G
+          cpus: "1.0"
+          memory: 4G
     command:
       - --datadir=/prysm/beacon
       - --disable-monitoring
@@ -89,8 +89,8 @@ services:
     deploy:
       resources:
         limits:
-          cpus: "2.0"
-          memory: 8G
+          cpus: "1.0"
+          memory: 4G
     command:
       - --beacon-rpc-provider=prysm:4000
       - --datadir=/prysm/validator
