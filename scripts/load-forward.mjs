@@ -238,7 +238,12 @@ async function runWorker(i, endAt, stats, _unused, bucket) {
           url = RPC_URLS[urlIdx];
           provider = createProvider(url);
           const rebound = new Wallet(wallet.privateKey, provider);
-          nonce = await provider.getTransactionCount(rebound.address, 'pending');
+          try {
+            nonce = await provider.getTransactionCount(rebound.address, 'pending');
+          } catch (e2) {
+            // If recovery fails, just ignore and retry next time.
+            // Do not let the worker crash.
+          }
         } else {
           if (nonce > 0) nonce--;
         }
@@ -284,10 +289,9 @@ async function main() {
   const receiptProvider = getReceiptProvider();
   // Rotate receipt provider every 10 minutes to clear internal cache/listeners
   const rotationInterval = setInterval(() => {
-    const old = globalReceiptProvider;
+    // Simply replace the global provider. The old one will be GC'd when pending requests finish.
+    // Do NOT call destroy() as it causes "provider destroyed" errors for in-flight waitForTransaction calls.
     globalReceiptProvider = new JsonRpcProvider(pickHttpUrl());
-    // Destroy old one after delay to allow pending calls to finish
-    setTimeout(() => { try { old.destroy(); } catch {} }, 10000);
   }, 60000 * 10);
 
   const bucket = createTokenBucket();
