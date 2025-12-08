@@ -86,12 +86,35 @@ function pickHttpUrl() {
   return http || 'http://127.0.0.1:8545';
 }
 
-let globalReceiptProvider = null;
-function getReceiptProvider() {
-  if (!globalReceiptProvider) {
-    globalReceiptProvider = new JsonRpcProvider(pickHttpUrl());
+// Custom receipt polling using fetch to avoid ethers provider leaks
+async function waitReceipt(txHash) {
+  const start = Date.now();
+  const timeout = 60000; // 60s timeout for receipt
+  let urlIdx = 0;
+
+  while (Date.now() - start < timeout) {
+    // Rotate HTTP endpoints for receipt checking
+    const url = RPC_URLS.filter(u => u.startsWith('http'))[urlIdx % RPC_URLS.length] || 'http://127.0.0.1:8545';
+    urlIdx++;
+
+    try {
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'eth_getTransactionReceipt', params: [txHash] })
+      });
+      if (res.ok) {
+        const json = await res.json();
+        if (json.result) {
+          return json.result; // Receipt found
+        }
+      }
+    } catch (e) {
+      // Ignore network errors during polling, just retry
+    }
+    await sleep(1000);
   }
-  return globalReceiptProvider;
+  throw new Error('waitReceipt timeout');
 }
 
 function createTokenBucket() {
@@ -135,7 +158,7 @@ function workerKey(i) {
   return '0x' + v;
 }
 
-async function fundWorkersIfNeeded(provider, receiptProvider) {
+async function fundWorkersIfNeeded(provider) {
   if (!DEPLOYER_PK || !FUND_WORKERS) return;
   const wallet = new Wallet(DEPLOYER_PK, provider);
   const chainId = (await provider.getNetwork()).chainId;
@@ -159,7 +182,9 @@ async function fundWorkersIfNeeded(provider, receiptProvider) {
       try {
         const sent = await wallet.sendTransaction(tx);
         if (FUND_WAIT) {
-          await (receiptProvider || provider).waitForTransaction(sent.hash);
+          // For funding, we can just wait a bit or use the new polling. 
+          // Since this runs once at start, using waitReceipt is fine.
+          await waitReceipt(sent.hash);
         }
         console.log(`funded ${w.address} with ${topUp} wei, tx ${sent.hash}`);
       } catch (e) {
@@ -223,9 +248,9 @@ async function runWorker(i, endAt, stats, _unused, bucket) {
       try {
         const sent = await sendWithTimeout(tx);
         stats.sent++;
-        // Use receiptProvider for wait to avoid WS subscribe churn
+        // Use custom waitReceipt to avoid ethers provider leaks
         const h = sent.hash || sent; // raw send returns hash string wrapper
-        getReceiptProvider().waitForTransaction(h).then(() => { stats.succ++; }).catch(() => {});
+        waitReceipt(h).then(() => { stats.succ++; }).catch(() => { });
       } catch (e) {
         stats.fail++;
         const msg = (e && e.message) || 'error';
@@ -233,7 +258,7 @@ async function runWorker(i, endAt, stats, _unused, bucket) {
           await sleep(50);
         }
         if (/tx-send-timeout|connection|ECONNRESET|socket|timeout|closed/i.test(msg)) {
-          try { await provider.destroy?.(); } catch {}
+          try { await provider.destroy?.(); } catch { }
           urlIdx = (urlIdx + 1) % RPC_URLS.length;
           url = RPC_URLS[urlIdx];
           provider = createProvider(url);
@@ -270,7 +295,7 @@ async function runWorker(i, endAt, stats, _unused, bucket) {
   // 終了時、保留分を待つ（短いグレース期間に委ねてもOK）
   await Promise.allSettled(pending);
   // cleanup provider so websocket doesn't keep process alive
-  try { await provider.destroy?.(); } catch {}
+  try { await provider.destroy?.(); } catch { }
 }
 
 function sleep(ms) { return new Promise(res => setTimeout(res, ms)); }
@@ -285,24 +310,16 @@ async function main() {
   const primary = createProvider(RPC_URLS[0]);
   const net = await primary.getNetwork();
   console.log(`chainId=${net.chainId} block=${await primary.getBlockNumber()}`);
-  // Dedicated HTTP provider for receipt polling to avoid WS subscription races
-  const receiptProvider = getReceiptProvider();
-  // Rotate receipt provider every 10 minutes to clear internal cache/listeners
-  const rotationInterval = setInterval(() => {
-    // Simply replace the global provider. The old one will be GC'd when pending requests finish.
-    // Do NOT call destroy() as it causes "provider destroyed" errors for in-flight waitForTransaction calls.
-    globalReceiptProvider = new JsonRpcProvider(pickHttpUrl());
-  }, 60000 * 10);
 
   const bucket = createTokenBucket();
   if (bucket) {
     console.log(`Rate limiting enabled: TARGET_TPS=${TARGET_TPS} capacity=${bucket.capacity} interval=${BUCKET_INTERVAL_MS}ms addPerTick≈${Math.max(1, Math.floor(TARGET_TPS * BUCKET_INTERVAL_MS / 1000))}`);
   }
-  await fundWorkersIfNeeded(primary, receiptProvider);
+  await fundWorkersIfNeeded(primary);
 
   const endAt = Date.now() + DURATION_SEC * 1000;
   const stats = { sent: 0, succ: 0, fail: 0 };
-  // Dedicated HTTP provider for receipt polling to avoid WS subscription races
+
   const tasks = [];
   for (let i = 0; i < WORKERS; i++) {
     tasks.push(runWorker(i, endAt, stats, null, bucket));
@@ -316,13 +333,13 @@ async function main() {
   }, DURATION_SEC * 1000 + GRACE_EXIT_MS);
 
   await Promise.allSettled(tasks);
-  clearInterval(rotationInterval);
+
   // 送信完了後、任意でレシート取り込みの猶予を与える
   if (RECEIPT_DRAIN_MS > 0) {
     await sleep(RECEIPT_DRAIN_MS);
   }
   clearTimeout(watchdog);
-  try { await primary.destroy?.(); } catch {}
+  try { await primary.destroy?.(); } catch { }
   console.log(`done: sent=${stats.sent} succ=${stats.succ} fail=${stats.fail}`);
   // Explicit exit to avoid lingering websockets
   process.exit(0);
