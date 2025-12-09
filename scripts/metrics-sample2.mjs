@@ -16,8 +16,8 @@ function parseList(v, def) {
 
 const EL_ENDPOINTS = parseList(process.env.ENDPOINTS, 'http://geth:8545,http://geth-2:8545,http://geth-3:8545');
 const CL_ENDPOINTS = parseList(process.env.BEACON_URLS, 'http://prysm:3500,http://prysm-2:3500,http://prysm-3:3500');
-const EL_INDEX = Object.fromEntries(EL_ENDPOINTS.map((e,i)=>[e,i]));
-const CL_INDEX = Object.fromEntries(CL_ENDPOINTS.map((e,i)=>[e,i]));
+const EL_INDEX = Object.fromEntries(EL_ENDPOINTS.map((e, i) => [e, i]));
+const CL_INDEX = Object.fromEntries(CL_ENDPOINTS.map((e, i) => [e, i]));
 const INTERVAL_MS = Number(process.env.INTERVAL_MS || 1000);
 const DURATION_SEC = Number(process.env.DURATION_SEC || 0);
 
@@ -30,14 +30,14 @@ function readSlotsPerEpoch() {
       const m = txt.match(/SLOTS_PER_EPOCH\s*:\s*(\d+)/i);
       if (m) return Number(m[1]);
     }
-  } catch {}
+  } catch { }
   return 6;
 }
 const SLOTS_PER_EPOCH = readSlotsPerEpoch();
 
 // コンテナ名はサービス種別 + 1始まりインデックスで記録 (例: geth-1,geth-2 / prysm-1,prysm-2)
-function elContainerName(i) { return `geth-${i+1}`; }
-function clContainerName(i) { return `prysm-${i+1}`; }
+function elContainerName(i) { return `geth-${i + 1}`; }
+function clContainerName(i) { return `prysm-${i + 1}`; }
 // 分割出力用のCSVファイル（EL/CL/Validator）
 let EL_CSV = '';
 let CL_CSV = '';
@@ -54,27 +54,27 @@ function initCsvFiles() {
   NET_CSV = path.join(dir, `net-${base}.csv`);
   const elHeader = [
     // 動的指標のみ（静的/布尔は除外）
-    'ts_ms','container_name','latency_ms',
-    'block_number','basefee_wei','gasprice_wei','block_gas_used','block_gas_limit','peer_count','txpool_pending','txpool_queued',
+    'ts_ms', 'container_name', 'latency_ms',
+    'block_number', 'basefee_wei', 'gasprice_wei', 'block_gas_used', 'block_gas_limit', 'peer_count', 'txpool_pending', 'txpool_queued',
     'block_tx_count'
   ].join(',') + '\n';
   const clHeader = [
     // 動的指標のみ（bool/hashは除外）
-    'ts_ms','container_name','latency_ms','peer_connected',
-    'sync_distance','head_slot','justified_epoch','finalized_epoch',
-    'current_epoch','head_finality_gap_slots'
+    'ts_ms', 'container_name', 'latency_ms', 'peer_connected',
+    'sync_distance', 'head_slot', 'justified_epoch', 'finalized_epoch',
+    'current_epoch', 'head_finality_gap_slots'
   ].join(',') + '\n';
   const valHeader = [
     // boolは出力しない
-    'ts_ms','source_container','active_validator_count','avg_effective_balance_gwei'
+    'ts_ms', 'source_container', 'avg_effective_balance_gwei'
   ].join(',') + '\n';
   const netHeader = [
     // ネットワーク全体API由来のユニークな指標（重複/集約は含めない）
     'ts_ms',
     // Finality/進捗に関わるネットワーク状態
-    'head_slot','current_epoch','justified_epoch','finalized_epoch','finality_gap_slots','finality_gap_epochs',
+    'head_slot', 'current_epoch', 'justified_epoch', 'finalized_epoch', 'finality_gap_slots', 'finality_gap_epochs',
     // 集約的に意味を持つ最小限のバリデータ指標
-    'validators_total','activation_queue_len','exit_queue_len','active_validator_count'
+    'validators_total', 'activation_queue_len', 'exit_queue_len', 'active_validator_count'
   ].join(',') + '\n';
   fs.writeFileSync(EL_CSV, elHeader);
   fs.writeFileSync(CL_CSV, clHeader);
@@ -108,6 +108,17 @@ async function beaconGet(url, path) {
   if (!res.ok) throw Object.assign(new Error(`${path} HTTP ${res.status}`), { latency });
   const json = await res.json();
   return { json, latency };
+}
+
+async function beaconGetWithFailover(path) {
+  for (const endpoint of CL_ENDPOINTS) {
+    try {
+      return await beaconGet(endpoint, path);
+    } catch (e) {
+      // ignore and try next
+    }
+  }
+  throw new Error(`All CL endpoints failed for ${path}`);
 }
 
 async function beaconGetRaw(url, path) {
@@ -145,11 +156,11 @@ async function sampleEl(endpoint) {
   try { const { result: txc } = await jsonRpc(endpoint, 'eth_getBlockTransactionCountByNumber', ['latest']); blockTxCount = hexToNum(txc) ?? MISSING; } catch { errorFlag = 1; }
   try { const { result: pc } = await jsonRpc(endpoint, 'net_peerCount', []); peerCount = hexToNum(pc) ?? MISSING; } catch { errorFlag = 1; }
   try { const { result: st } = await jsonRpc(endpoint, 'txpool_status', []); pend = hexToNum(st?.pending) ?? MISSING; que = hexToNum(st?.queued) ?? MISSING; } catch { errorFlag = 1; }
-  appendCsvRow(EL_CSV,[
-    ts_ms,containerName,
+  appendCsvRow(EL_CSV, [
+    ts_ms, containerName,
     el_latency,
-    blockNumber,basefee,gasprice,gasUsed,gasLimit,
-    peerCount,pend,que,
+    blockNumber, basefee, gasprice, gasUsed, gasLimit,
+    peerCount, pend, que,
     blockTxCount
   ]);
   return { ts_ms, containerName, el_latency, blockNumber, basefee, gasprice, gasUsed, gasLimit, peerCount, pend, que, blockTxCount };
@@ -163,37 +174,37 @@ async function sampleCl(endpoint) {
   let syncDistance = MISSING, headSlot = MISSING, justEpoch = MISSING, finEpoch = MISSING, errorFlag = 0;
   try { const { latency: l } = await beaconGetRaw(endpoint, '/eth/v1/node/health'); cl_latency = l; } catch { errorFlag = 1; }
   try { const { json } = await beaconGet(endpoint, '/eth/v1/node/peer_count'); const d = json.data || {}; pConn = Number(d.connected ?? d?.peer_count ?? MISSING); } catch { errorFlag = 1; }
-  try { const { json } = await beaconGet(endpoint, '/eth_v1/node/syncing'.replace('_','/')); const data = json.data || {}; syncDistance = Number(data.sync_distance ?? MISSING); if (data.head_slot !== undefined) headSlot = Number(data.head_slot); } catch { errorFlag = 1; }
+  try { const { json } = await beaconGet(endpoint, '/eth_v1/node/syncing'.replace('_', '/')); const data = json.data || {}; syncDistance = Number(data.sync_distance ?? MISSING); if (data.head_slot !== undefined) headSlot = Number(data.head_slot); } catch { errorFlag = 1; }
   try { const { json } = await beaconGet(endpoint, '/eth/v1/beacon/headers/head'); const d = json.data || {}; headSlot = headSlot !== MISSING ? headSlot : Number(d?.header?.message?.slot ?? d?.slot ?? MISSING); } catch { errorFlag = 1; }
   try { const { json } = await beaconGet(endpoint, '/eth/v1/beacon/states/head/finality_checkpoints'); const d = json.data || {}; justEpoch = Number(d?.current_justified?.epoch ?? MISSING); finEpoch = Number(d?.finalized?.epoch ?? MISSING); } catch { errorFlag = 1; }
   const finSlot = (finEpoch !== MISSING && Number.isFinite(SLOTS_PER_EPOCH)) ? finEpoch * SLOTS_PER_EPOCH : MISSING;
   const curEpoch = (headSlot !== MISSING && Number.isFinite(SLOTS_PER_EPOCH)) ? Math.floor(headSlot / SLOTS_PER_EPOCH) : MISSING;
   const headFinalGap = (headSlot !== MISSING && finSlot !== MISSING) ? Math.max(0, headSlot - finSlot) : MISSING;
-  appendCsvRow(CL_CSV,[
-    ts_ms,containerName,
-    cl_latency,pConn,
-    syncDistance,headSlot,justEpoch,finEpoch,
-    curEpoch,headFinalGap
+  appendCsvRow(CL_CSV, [
+    ts_ms, containerName,
+    cl_latency, pConn,
+    syncDistance, headSlot, justEpoch, finEpoch,
+    curEpoch, headFinalGap
   ]);
   return { ts_ms, containerName, cl_latency, pConn, syncDistance, headSlot, justEpoch, finEpoch, curEpoch, headFinalGap };
 }
 
 async function sampleNetwork() {
-  const endpoint = CL_ENDPOINTS[0];
+  // endpointはfailoverで動的に決定
   const ts_ms = unixMs();
   // head/epoch/finality 関連
   let headSlot = -1, curEpoch = -1, justEpoch = -1, finEpoch = -1;
   let finGapSlots = -1, finGapEpochs = -1;
   let cPendInit = -1, cPendQueue = -1, cActOngo = -1, cActExit = -1;
-  try { const { json } = await beaconGet(endpoint, '/eth/v1/beacon/headers/head'); const d = json.data || {}; headSlot = Number(d?.header?.message?.slot ?? d?.slot ?? -1); } catch {}
-  try { const { json } = await beaconGet(endpoint, '/eth/v1/beacon/states/head/finality_checkpoints'); const d = json.data || {}; justEpoch = Number(d?.current_justified?.epoch ?? -1); finEpoch = Number(d?.finalized?.epoch ?? -1); } catch {}
+  try { const { json } = await beaconGetWithFailover('/eth/v1/beacon/headers/head'); const d = json.data || {}; headSlot = Number(d?.header?.message?.slot ?? d?.slot ?? -1); } catch { }
+  try { const { json } = await beaconGetWithFailover('/eth/v1/beacon/states/head/finality_checkpoints'); const d = json.data || {}; justEpoch = Number(d?.current_justified?.epoch ?? -1); finEpoch = Number(d?.finalized?.epoch ?? -1); } catch { }
   curEpoch = (headSlot >= 0 && Number.isFinite(SLOTS_PER_EPOCH)) ? Math.floor(headSlot / SLOTS_PER_EPOCH) : -1;
   const finSlot = (finEpoch >= 0 && Number.isFinite(SLOTS_PER_EPOCH)) ? finEpoch * SLOTS_PER_EPOCH : -1;
   finGapSlots = (headSlot >= 0 && finSlot >= 0) ? Math.max(0, headSlot - finSlot) : -1;
   finGapEpochs = (curEpoch >= 0 && finEpoch >= 0) ? Math.max(0, curEpoch - finEpoch) : -1;
   async function countStatus(statuses) {
     try {
-      const { json } = await beaconGet(endpoint, `/eth/v1/beacon/states/head/validators?status=${statuses}`);
+      const { json } = await beaconGetWithFailover(`/eth/v1/beacon/states/head/validators?status=${statuses}`);
       return Array.isArray(json?.data) ? json.data.length : -1;
     } catch { return -1; }
   }
@@ -201,11 +212,11 @@ async function sampleNetwork() {
   cPendQueue = await countStatus('pending_queued');
   cActOngo = await countStatus('active_ongoing');
   cActExit = await countStatus('active_exiting');
-  const total = [cPendInit,cPendQueue,cActOngo,cActExit].filter(n=>n>=0).reduce((a,b)=>a+b,0) || -1;
-  const activationQueueLen = (cPendInit>=0 && cPendQueue>=0) ? (cPendInit + cPendQueue) : -1;
+  const total = [cPendInit, cPendQueue, cActOngo, cActExit].filter(n => n >= 0).reduce((a, b) => a + b, 0) || -1;
+  const activationQueueLen = (cPendInit >= 0 && cPendQueue >= 0) ? (cPendInit + cPendQueue) : -1;
   const exitQueueLen = cActExit;
   const activeValidatorCount = cActOngo;
-  appendCsvRow(NET_CSV,[
+  appendCsvRow(NET_CSV, [
     ts_ms,
     headSlot, curEpoch, justEpoch, finEpoch, finGapSlots, finGapEpochs,
     total, activationQueueLen, exitQueueLen, activeValidatorCount
@@ -214,21 +225,19 @@ async function sampleNetwork() {
 
 async function sampleValidators() {
   const ts_ms = unixMs();
-  // 代表として最初の CL エンドポイントを使用
-  const endpoint = CL_ENDPOINTS[0];
-  let activeCount = -1, avgBal = -1;
-  let source = 'validator-1';
+  // failover対応
+  let avgBal = -1;
+  let source = 'any'; // 取得できたノード
   try {
-    const { json } = await beaconGet(endpoint, '/eth/v1/beacon/states/head/validators?status=active');
+    const { json } = await beaconGetWithFailover('/eth/v1/beacon/states/head/validators?status=active');
     const arr = (json.data || []).map(v => Number(v?.balance ?? v?.effective_balance ?? -1)).filter(n => n >= 0);
     if (arr.length) {
-      activeCount = arr.length;
       let sum = 0;
       for (const b of arr) { sum += b; }
       avgBal = Math.round(sum / arr.length);
     }
-  } catch {}
-  appendCsvRow(VAL_CSV,[ts_ms, source, activeCount, avgBal]);
+  } catch { }
+  appendCsvRow(VAL_CSV, [ts_ms, source, avgBal]);
 }
 
 async function main() {
