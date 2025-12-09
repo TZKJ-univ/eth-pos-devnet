@@ -57,6 +57,7 @@ function upsertEnv(path, key, value) {
 }
 
 async function main() {
+  const enrList = [];
   // Collect all multiaddrs first
   const multiaddrs = {}; // service -> multiaddr
   for (const s of BEACON_SERVICES) {
