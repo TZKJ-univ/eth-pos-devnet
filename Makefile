@@ -4,7 +4,7 @@ TOTAL_WORKERS=$${TOTAL_WORKERS:-300} \
 DURATION_SEC=$${DURATION_SEC:-20}
 endef
 define RESTART_DEFAULT_ENV
-RESTART_INTERVAL_SEC=$${RESTART_INTERVAL_SEC:-20}
+RESTART_INTERVAL_SEC=$${RESTART_INTERVAL_SEC:-20} \
 CLEAR_MEMPOOL=$${CLEAR_MEMPOOL:-0}
 endef
 init:
@@ -383,12 +383,8 @@ downup-all-every:
 	  sleep $$RESTART_INTERVAL_SEC; \
 	  echo "[downup-all-every] Restarting set1..."; \
 	  $(MAKE) downup-set1; \
-	  echo "[downup-all-every] Sleeping for $$RESTART_INTERVAL_SEC seconds..."; \
-	  sleep $$RESTART_INTERVAL_SEC; \
 	  echo "[downup-all-every] Restarting set2..."; \
 	  $(MAKE) downup-set2; \
-	  echo "[downup-all-every] Sleeping for $$RESTART_INTERVAL_SEC seconds..."; \
-	  sleep $$RESTART_INTERVAL_SEC; \
 	  echo "[downup-all-every] Restarting set3..."; \
 	  $(MAKE) downup-set3; \
 	done'
