@@ -94,8 +94,14 @@ async function main() {
   if (peer) {
     const peerPatched = peer.replace(/(\/ip4\/)(\d+\.\d+\.\d+\.\d+)(\/)/, `/dns4/prysm$3`);
     upsertEnvVar(ENV_PATH, "PRYSM_BOOTSTRAP_PEER", peerPatched);
+
+    // Populate PRYSM_PEERS_2 and PRYSM_PEERS_3 with prysm-1's address so they can bootstrap
+    upsertEnvVar(ENV_PATH, "PRYSM_PEERS_2", peerPatched);
+    upsertEnvVar(ENV_PATH, "PRYSM_PEERS_3", peerPatched);
+    // PRYSM_PEERS_1 can be empty initially
+    upsertEnvVar(ENV_PATH, "PRYSM_PEERS_1", "");
   }
-  console.log("Wrote PRYSM_BOOTSTRAP_ENR to .env");
+  console.log("Wrote PRYSM_BOOTSTRAP_ENR and PRYSM_PEERS_* to .env");
 }
 
 main().catch((err) => {

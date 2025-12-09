@@ -12,7 +12,7 @@ services:
     command:
       - --networkid=48815
       - --miner.recommit=1s
-      - --gcmode=archive
+      - --gcmode=full
       - --state.scheme=hash
       - --authrpc.addr=0.0.0.0
       - --authrpc.port=8551
@@ -58,7 +58,7 @@ services:
       - --checkpoint-sync-url=http://prysm:3500
       - --genesis-state=/sharedprysm/genesis.ssz
       - --interop-eth1data-votes
-      - --peer=${PRYSM_BOOTSTRAP_ENR}
+      - --peer=${PRYSM_PEERS_3}
       - --chain-config-file=/config/config.yml
       - --contract-deployment-block=0
       - --chain-id=48815

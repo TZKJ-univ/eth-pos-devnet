@@ -57,7 +57,8 @@ function upsertEnv(path, key, value) {
 }
 
 async function main() {
-  const enrList = [];
+  // Collect all multiaddrs first
+  const multiaddrs = {}; // service -> multiaddr
   for (const s of BEACON_SERVICES) {
     try {
       const data = await waitForEnr(s);
@@ -66,24 +67,38 @@ async function main() {
 
       const addrs = Array.isArray(data.p2p_addresses) ? data.p2p_addresses : [];
       const peer = addrs.find(a => /\/ip4\//.test(a)) || addrs[0];
-      let bootstrapVal = enr;
+
       if (peer) {
         // Use service name as DNS name
         const dnsName = s === 'prysm' ? 'prysm' : s;
         const peerPatched = peer.replace(/(\/ip4\/)(\d+\.\d+\.\d+\.\d+)(\/)/, `/dns4/${dnsName}$3`);
-        bootstrapVal = peerPatched;
-        upsertEnv(ENV_PATH, `PRYSM_BOOTSTRAP_PEER_${enrList.length + 1}`, peerPatched);
+        multiaddrs[s] = peerPatched;
       }
 
-      enrList.push(bootstrapVal);
-      upsertEnv(ENV_PATH, `PRYSM_BOOTSTRAP_ENR_${enrList.length}`, bootstrapVal);
+      // Still write individual ENRs/Peers for backward compatibility or other uses
+      enrList.push(enr); // Note: using patched ENR string here, though multiaddr is preferred for peering
+      upsertEnv(ENV_PATH, `PRYSM_BOOTSTRAP_ENR_${enrList.length}`, enr);
 
     } catch (e) { console.error('bootstrap-enr-all:', s, e.message); }
   }
+
+  // Generate peer lists excluding self
+  const services = BEACON_SERVICES; // ['prysm', 'prysm-2', 'prysm-3']
+  services.forEach((s, i) => {
+    const peers = services
+      .filter(other => other !== s) // Exclude self
+      .map(other => multiaddrs[other])
+      .filter(Boolean); // Filter out undefined if fetch failed
+
+    const envVar = `PRYSM_PEERS_${i + 1}`; // PRYSM_PEERS_1, _2, _3
+    upsertEnv(ENV_PATH, envVar, peers.join(','));
+    console.log(`bootstrap-enr-all: wrote ${envVar} with ${peers.length} peers`);
+  });
+
   if (enrList.length) {
     upsertEnv(ENV_PATH, 'PRYSM_BOOTSTRAP_ENR', enrList.join(','));
   }
-  console.log('bootstrap-enr-all: wrote multi ENRs (multiaddrs) to .env');
+  console.log('bootstrap-enr-all: wrote multi ENRs to .env');
 }
 
 main().catch(e => { console.error(e); process.exit(1); });

@@ -5,6 +5,7 @@ DURATION_SEC=$${DURATION_SEC:-20}
 endef
 define RESTART_DEFAULT_ENV
 RESTART_INTERVAL_SEC=$${RESTART_INTERVAL_SEC:-20}
+CLEAR_MEMPOOL=$${CLEAR_MEMPOOL:-0}
 endef
 init:
 	docker compose -f docker-compose-init.yaml up && docker compose -f docker-compose-init.yaml down
@@ -33,6 +34,7 @@ stop:
 reset: stop
 	rm -Rf ./data && sleep 1
 	sed -i '' '/^PRYSM_BOOTSTRAP_ENR/d' .env || true
+	sed -i '' '/^PRYSM_PEERS_/d' .env || true
 
 start-validators:
 	docker compose -f docker-compose-set1.yml up -d validator
@@ -86,6 +88,11 @@ bootstrap-all:
 .PHONY: downup-set1
 downup-set1:
 	docker compose -f docker-compose-set1.yml down || true
+	# Optional: Clear mempool if requested
+	if [ "$${CLEAR_MEMPOOL}" = "1" ]; then \
+	  echo "Clearing mempool for set1..."; \
+	  rm -f ./data/geth/geth/transactions.rlp; \
+	fi
 	# Ensure latest boot info is written before restarting set1 so clients can form peers
 	- $(MAKE) bootstrap-all || true
 	docker compose -f docker-compose-set1.yml up -d geth prysm
@@ -174,6 +181,11 @@ downup-set1:
 .PHONY: downup-set2
 downup-set2:
 	docker compose -f docker-compose-set2.yml down || true
+	# Optional: Clear mempool if requested
+	if [ "$${CLEAR_MEMPOOL}" = "1" ]; then \
+	  echo "Clearing mempool for set2..."; \
+	  rm -f ./data/geth-2/geth/transactions.rlp; \
+	fi
 	# Ensure latest boot info is written before restarting set2 so clients can form peers
 	- $(MAKE) bootstrap-all || true
 	docker compose -f docker-compose-set2.yml up -d geth-2 prysm-2
@@ -262,6 +274,11 @@ downup-set2:
 .PHONY: downup-set3
 downup-set3:
 	docker compose -f docker-compose-set3.yml down || true
+	# Optional: Clear mempool if requested
+	if [ "$${CLEAR_MEMPOOL}" = "1" ]; then \
+	  echo "Clearing mempool for set3..."; \
+	  rm -f ./data/geth-3/geth/transactions.rlp; \
+	fi
 	# Ensure latest boot info is written before restarting set3 so clients can form peers
 	- $(MAKE) bootstrap-all || true
 	docker compose -f docker-compose-set3.yml up -d geth-3 prysm-3
