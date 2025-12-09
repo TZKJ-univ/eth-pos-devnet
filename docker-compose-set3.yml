@@ -58,7 +58,7 @@ services:
       - --checkpoint-sync-url=http://prysm:3500
       - --genesis-state=/sharedprysm/genesis.ssz
       - --interop-eth1data-votes
-      - --bootstrap-node=${PRYSM_BOOTSTRAP_ENR}
+      - --peer=${PRYSM_BOOTSTRAP_ENR}
       - --chain-config-file=/config/config.yml
       - --contract-deployment-block=0
       - --chain-id=48815
@@ -72,6 +72,7 @@ services:
       - --http-cors-domain=*
       - --rpc-host=0.0.0.0
       - --rpc-port=4000
+      - --p2p-static-id
     depends_on:
       geth-3:
         condition: service_healthy

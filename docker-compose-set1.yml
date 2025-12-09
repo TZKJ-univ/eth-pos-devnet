@@ -61,6 +61,7 @@ services:
       - --execution-endpoint=/geth/geth.ipc
       - --jwt-secret=/geth/geth/jwtsecret
       - --accept-terms-of-use
+      - --bootstrap-node=${PRYSM_BOOTSTRAP_ENR}
       - --suggested-fee-recipient=0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266
       - --minimum-peers-per-subnet=0
       - --http-host=0.0.0.0
@@ -68,6 +69,7 @@ services:
       - --http-cors-domain=*
       - --rpc-host=0.0.0.0
       - --rpc-port=4000
+      - --p2p-static-id
     ports:
       - 12000:12000/udp
       - 13000:13000/udp

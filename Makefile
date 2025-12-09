@@ -9,12 +9,18 @@ endef
 init:
 	docker compose -f docker-compose-init.yaml up && docker compose -f docker-compose-init.yaml down
 
+unexport PRYSM_BOOTSTRAP_ENR
+
 start:
-	docker compose -f docker-compose-set1.yml up -d geth prysm
+	docker compose --env-file .env -f docker-compose-set1.yml up -d geth prysm
 	node ./scripts/bootstrap-enode.mjs
 	- node ./scripts/bootstrap-enr.mjs || true
-	docker compose -f docker-compose-set2.yml up -d geth-2 prysm-2
-	docker compose -f docker-compose-set3.yml up -d geth-3 prysm-3
+	@echo "DEBUG: PRYSM_BOOTSTRAP_ENR in .env after bootstrap-enr:"
+	@grep "PRYSM_BOOTSTRAP_ENR" .env || echo "Not found"
+	@echo "DEBUG: Environment variables:"
+	@env | grep PRYSM || echo "No PRYSM env vars"
+	docker compose --env-file .env -f docker-compose-set2.yml up -d --force-recreate geth-2 prysm-2
+	docker compose --env-file .env -f docker-compose-set3.yml up -d --force-recreate geth-3 prysm-3
 	- node ./scripts/bootstrap-enode-all.mjs || true
 	- node ./scripts/bootstrap-enr-all.mjs || true
 
@@ -26,6 +32,7 @@ stop:
 
 reset: stop
 	rm -Rf ./data && sleep 1
+	sed -i '' '/^PRYSM_BOOTSTRAP_ENR/d' .env || true
 
 start-validators:
 	docker compose -f docker-compose-set1.yml up -d validator
@@ -55,7 +62,7 @@ fresh:
 	# Sanity TX and health summary
 	npm --prefix ./scripts ci || npm --prefix ./scripts i
 	node ./scripts/send-tx.mjs
-	node ./scripts/check-health.mjs || true
+	HEALTH_MAX_WAIT_SEC=$${HEALTH_MAX_WAIT_SEC:-120} node ./scripts/check-health.mjs || true
 
 fresh-load:
 	$(MAKE) fresh
@@ -75,6 +82,182 @@ metrics:
 bootstrap-all:
 	node ./scripts/bootstrap-enode-all.mjs
 	node ./scripts/bootstrap-enr-all.mjs
+
+.PHONY: downup-set1
+downup-set1:
+	docker compose -f docker-compose-set1.yml down || true
+	# Ensure latest boot info is written before restarting set1 so clients can form peers
+	- $(MAKE) bootstrap-all || true
+	docker compose -f docker-compose-set1.yml up -d geth prysm
+	RPC_URL=http://127.0.0.1:8545 node ./scripts/wait-el-ready.mjs
+	# Pre-warm for set1 geth/prysm before validator
+	docker run --rm \
+	  --network devnet_default \
+	  -v $$(pwd)/data:/data:ro \
+	  -v $$(pwd)/scripts:/scripts:ro \
+	  -e ENGINE_NAME=geth-1 \
+	  -e ENGINE_JWT=/data/geth/geth/jwtsecret \
+	  -e ENGINE_URL=http://geth-1:8551 \
+	  -e ENGINE_RPC_URL=http://geth-1:8545 \
+	  node:22-alpine node /scripts/engine-refresh-fcu.mjs || true
+	docker run --rm \
+	  --network devnet_default \
+	  -v $$(pwd)/data:/data:ro \
+	  -v $$(pwd)/scripts:/scripts:ro \
+	  -e ENGINE_NAME=geth-1 \
+	  -e ENGINE_JWT=/data/geth/geth/jwtsecret \
+	  -e ENGINE_URL=http://geth-1:8551 \
+	  -e ENGINE_RPC_URL=http://geth-1:8545 \
+	  -e BEACON_URL=http://prysm-1:3500 \
+	  -e WARM_V3_ONLY=1 -e WARM_REQUIRE_BEACON=1 \
+	  -e WARM_RETRIES=$${WARM_RETRIES:-9} -e WARM_INTERVAL_MS=$${WARM_INTERVAL_MS:-600} \
+	  node:22-alpine node /scripts/engine-warm.mjs || true
+	sleep 1
+	docker run --rm \
+	  --network devnet_default \
+	  -v $$(pwd)/data:/data:ro \
+	  -v $$(pwd)/scripts:/scripts:ro \
+	  -e ENGINE_NAME=geth-1 \
+	  -e ENGINE_JWT=/data/geth/geth/jwtsecret \
+	  -e ENGINE_URL=http://geth-1:8551 \
+	  -e ENGINE_RPC_URL=http://geth-1:8545 \
+	  -e BEACON_URL=http://prysm-1:3500 \
+	  -e WARM_V3_ONLY=1 -e WARM_REQUIRE_BEACON=1 \
+	  -e WARM_RETRIES=$${WARM_RETRIES:-9} -e WARM_INTERVAL_MS=$${WARM_INTERVAL_MS:-600} \
+	  node:22-alpine node /scripts/engine-warm.mjs || true
+	sleep 2
+	# Wait for beacon-1 readiness and peer formation before starting validator-1
+	BEACON_URLS="http://127.0.0.1:3500" WAIT_CL_TIMEOUT_MS=$${WAIT_CL_TIMEOUT_MS:-60000} node ./scripts/wait-cl-ready.mjs || true
+	docker compose -f docker-compose-set1.yml up -d validator
+	sleep $${SECONDS_PER_SLOT:-2}
+	docker run --rm \
+	  --network devnet_default \
+	  -v $$(pwd)/data:/data:ro \
+	  -v $$(pwd)/scripts:/scripts:ro \
+	  -e ENGINE_NAME=geth-1 \
+	  -e ENGINE_JWT=/data/geth/geth/jwtsecret \
+	  -e ENGINE_URL=http://geth-1:8551 \
+	  -e ENGINE_RPC_URL=http://geth-1:8545 \
+	  node:22-alpine node /scripts/engine-refresh-fcu.mjs || true
+	docker run --rm \
+	  --network devnet_default \
+	  -v $$(pwd)/data:/data:ro \
+	  -v $$(pwd)/scripts:/scripts:ro \
+	  -e ENGINE_NAME=geth-1 \
+	  -e ENGINE_JWT=/data/geth/geth/jwtsecret \
+	  -e ENGINE_URL=http://geth-1:8551 \
+	  -e ENGINE_RPC_URL=http://geth-1:8545 \
+	  -e BEACON_URL=http://prysm-1:3500 \
+	  -e WARM_VERIFY=1 \
+	  -e WARM_V3_ONLY=1 \
+	  -e WARM_RETRIES=$${WARM_RETRIES:-12} -e WARM_INTERVAL_MS=$${WARM_INTERVAL_MS:-600} \
+	  node:22-alpine node /scripts/engine-warm.mjs || true
+	sleep 1
+	docker run --rm \
+	  --network devnet_default \
+	  -v $$(pwd)/data:/data:ro \
+	  -v $$(pwd)/scripts:/scripts:ro \
+	  -e ENGINE_NAME=geth-1 \
+	  -e ENGINE_JWT=/data/geth/geth/jwtsecret \
+	  -e ENGINE_URL=http://geth-1:8551 \
+	  -e ENGINE_RPC_URL=http://geth-1:8545 \
+	  -e BEACON_URL=http://prysm-1:3500 \
+	  -e WARM_VERIFY=1 \
+	  -e WARM_V3_ONLY=1 \
+	  -e WARM_RETRIES=$${WARM_RETRIES:-8} -e WARM_INTERVAL_MS=$${WARM_INTERVAL_MS:-600} \
+	  node:22-alpine node /scripts/engine-warm.mjs || true
+	RPC_URLS="http://127.0.0.1:8545" node ./scripts/wait-el-head.mjs || true
+	npm --prefix ./scripts ci || npm --prefix ./scripts i
+	RPC_URLS="http://127.0.0.1:8545" BEACON_URLS="http://127.0.0.1:3500" HEALTH_MAX_WAIT_SEC=$${HEALTH_MAX_WAIT_SEC:-120} node ./scripts/check-health.mjs || true
+	- $(MAKE) bootstrap-all || true
+
+.PHONY: downup-set2
+downup-set2:
+	docker compose -f docker-compose-set2.yml down || true
+	# Ensure latest boot info is written before restarting set2 so clients can form peers
+	- $(MAKE) bootstrap-all || true
+	docker compose -f docker-compose-set2.yml up -d geth-2 prysm-2
+	RPC_URL=http://127.0.0.1:8547 node ./scripts/wait-el-ready.mjs
+	# Pre-warm for set2 geth/prysm before validator
+	docker run --rm \
+	  --network devnet_default \
+	  -v $$(pwd)/data:/data:ro \
+	  -v $$(pwd)/scripts:/scripts:ro \
+	  -e ENGINE_NAME=geth-2 \
+	  -e ENGINE_JWT=/data/geth-2/geth/jwtsecret \
+	  -e ENGINE_URL=http://geth-2:8551 \
+	  -e ENGINE_RPC_URL=http://geth-2:8545 \
+	  node:22-alpine node /scripts/engine-refresh-fcu.mjs || true
+	docker run --rm \
+	  --network devnet_default \
+	  -v $$(pwd)/data:/data:ro \
+	  -v $$(pwd)/scripts:/scripts:ro \
+	  -e ENGINE_NAME=geth-2 \
+	  -e ENGINE_JWT=/data/geth-2/geth/jwtsecret \
+	  -e ENGINE_URL=http://geth-2:8551 \
+	  -e ENGINE_RPC_URL=http://geth-2:8545 \
+	  -e BEACON_URL=http://prysm-2:3500 \
+	  -e WARM_V3_ONLY=1 -e WARM_REQUIRE_BEACON=1 \
+	  -e WARM_RETRIES=$${WARM_RETRIES:-9} -e WARM_INTERVAL_MS=$${WARM_INTERVAL_MS:-600} \
+	  node:22-alpine node /scripts/engine-warm.mjs || true
+	sleep 1
+	docker run --rm \
+	  --network devnet_default \
+	  -v $$(pwd)/data:/data:ro \
+	  -v $$(pwd)/scripts:/scripts:ro \
+	  -e ENGINE_NAME=geth-2 \
+	  -e ENGINE_JWT=/data/geth-2/geth/jwtsecret \
+	  -e ENGINE_URL=http://geth-2:8551 \
+	  -e ENGINE_RPC_URL=http://geth-2:8545 \
+	  -e BEACON_URL=http://prysm-2:3500 \
+	  -e WARM_V3_ONLY=1 -e WARM_REQUIRE_BEACON=1 \
+	  -e WARM_RETRIES=$${WARM_RETRIES:-9} -e WARM_INTERVAL_MS=$${WARM_INTERVAL_MS:-600} \
+	  node:22-alpine node /scripts/engine-warm.mjs || true
+	sleep 2
+	# Wait for beacon-2 readiness and peer formation before starting validator-2
+	BEACON_URLS="http://127.0.0.1:3502" WAIT_CL_TIMEOUT_MS=$${WAIT_CL_TIMEOUT_MS:-60000} node ./scripts/wait-cl-ready.mjs || true
+	docker compose -f docker-compose-set2.yml up -d validator-2
+	sleep $${SECONDS_PER_SLOT:-2}
+	docker run --rm \
+	  --network devnet_default \
+	  -v $$(pwd)/data:/data:ro \
+	  -v $$(pwd)/scripts:/scripts:ro \
+	  -e ENGINE_NAME=geth-2 \
+	  -e ENGINE_JWT=/data/geth-2/geth/jwtsecret \
+	  -e ENGINE_URL=http://geth-2:8551 \
+	  -e ENGINE_RPC_URL=http://geth-2:8545 \
+	  node:22-alpine node /scripts/engine-refresh-fcu.mjs || true
+	docker run --rm \
+	  --network devnet_default \
+	  -v $$(pwd)/data:/data:ro \
+	  -v $$(pwd)/scripts:/scripts:ro \
+	  -e ENGINE_NAME=geth-2 \
+	  -e ENGINE_JWT=/data/geth-2/geth/jwtsecret \
+	  -e ENGINE_URL=http://geth-2:8551 \
+	  -e ENGINE_RPC_URL=http://geth-2:8545 \
+	  -e BEACON_URL=http://prysm-2:3500 \
+	  -e WARM_VERIFY=1 \
+	  -e WARM_V3_ONLY=1 \
+	  -e WARM_RETRIES=$${WARM_RETRIES:-12} -e WARM_INTERVAL_MS=$${WARM_INTERVAL_MS:-600} \
+	  node:22-alpine node /scripts/engine-warm.mjs || true
+	sleep 1
+	docker run --rm \
+	  --network devnet_default \
+	  -v $$(pwd)/data:/data:ro \
+	  -v $$(pwd)/scripts:/scripts:ro \
+	  -e ENGINE_NAME=geth-2 \
+	  -e ENGINE_JWT=/data/geth-2/geth/jwtsecret \
+	  -e ENGINE_URL=http://geth-2:8551 \
+	  -e ENGINE_RPC_URL=http://geth-2:8545 \
+	  -e BEACON_URL=http://prysm-2:3500 \
+	  -e WARM_VERIFY=1 \
+	  -e WARM_V3_ONLY=1 \
+	  -e WARM_RETRIES=$${WARM_RETRIES:-8} -e WARM_INTERVAL_MS=$${WARM_INTERVAL_MS:-600} \
+	  node:22-alpine node /scripts/engine-warm.mjs || true
+	RPC_URLS="http://127.0.0.1:8547" node ./scripts/wait-el-head.mjs || true
+	npm --prefix ./scripts ci || npm --prefix ./scripts i
+	RPC_URLS="http://127.0.0.1:8547" BEACON_URLS="http://127.0.0.1:3502" HEALTH_MAX_WAIT_SEC=$${HEALTH_MAX_WAIT_SEC:-40} node ./scripts/check-health.mjs || true
+	- $(MAKE) bootstrap-all || true
 
 .PHONY: downup-set3
 downup-set3:
@@ -171,5 +354,24 @@ downup-set3-every:
 	while true; do \
 	  echo "[downup-set3-every] Sleeping for $$RESTART_INTERVAL_SEC seconds..."; \
 	  sleep $$RESTART_INTERVAL_SEC; \
+	  $(MAKE) downup-set3; \
+	done'
+
+.PHONY: downup-all-every
+downup-all-every:
+	$(RESTART_DEFAULT_ENV) bash -c 'if [ -z "$$RESTART_INTERVAL_SEC" ] || [ "$$RESTART_INTERVAL_SEC" -le 0 ]; then \
+	  echo "RESTART_INTERVAL_SEC is not set or invalid!"; exit 1; fi; \
+	while true; do \
+	  echo "[downup-all-every] Sleeping for $$RESTART_INTERVAL_SEC seconds..."; \
+	  sleep $$RESTART_INTERVAL_SEC; \
+	  echo "[downup-all-every] Restarting set1..."; \
+	  $(MAKE) downup-set1; \
+	  echo "[downup-all-every] Sleeping for $$RESTART_INTERVAL_SEC seconds..."; \
+	  sleep $$RESTART_INTERVAL_SEC; \
+	  echo "[downup-all-every] Restarting set2..."; \
+	  $(MAKE) downup-set2; \
+	  echo "[downup-all-every] Sleeping for $$RESTART_INTERVAL_SEC seconds..."; \
+	  sleep $$RESTART_INTERVAL_SEC; \
+	  echo "[downup-all-every] Restarting set3..."; \
 	  $(MAKE) downup-set3; \
 	done'
