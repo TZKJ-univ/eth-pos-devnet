@@ -57,7 +57,6 @@ services:
       - --enable-debug-rpc-endpoints
       - --checkpoint-sync-url=http://prysm:3500
       - --genesis-state=/sharedprysm/genesis.ssz
-      - --interop-eth1data-votes
       - --peer=${PRYSM_PEERS_3}
       - --chain-config-file=/config/config.yml
       - --contract-deployment-block=0

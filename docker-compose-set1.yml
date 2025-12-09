@@ -54,7 +54,6 @@ services:
       - --disable-monitoring
       - --min-sync-peers=0
       - --genesis-state=/prysm/genesis.ssz
-      - --interop-eth1data-votes
       - --chain-config-file=/config/config.yml
       - --contract-deployment-block=0
       - --chain-id=48815
