@@ -20,7 +20,7 @@ services:
       - testnet
       - generate-genesis
       - --fork=electra
-      - --num-validators=3
+      - --num-validators=192
       - --genesis-time-delay=10
       - --chain-config-file=/config/config.yml
       - --geth-genesis-json-in=/geth/genesis.json

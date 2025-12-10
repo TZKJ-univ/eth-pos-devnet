@@ -100,8 +100,8 @@ services:
       - --beacon-rpc-provider=prysm-2:4000
       - --datadir=/prysm/validator
       - --accept-terms-of-use
-      - --interop-num-validators=1
-      - --interop-start-index=1
+      - --interop-num-validators=64
+      - --interop-start-index=64
       - --chain-config-file=/config/config.yml
     depends_on:
       prysm-2:
