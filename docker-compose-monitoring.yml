@@ -10,6 +10,11 @@ services:
       - "19090:9090"
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 1G
 
   grafana:
     image: grafana/grafana:latest
@@ -20,3 +25,8 @@ services:
       - GF_SECURITY_ADMIN_PASSWORD=admin
     depends_on:
       - prometheus
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 1G

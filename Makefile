@@ -80,7 +80,8 @@ fresh-load-metrics:
 	$(LOAD_DEFAULT_ENV) ENDPOINTS=$${ENDPOINTS:-http://127.0.0.1:8545,http://127.0.0.1:8547,http://127.0.0.1:8548} DIRECT_TRANSFER=$${DIRECT_TRANSFER:-1} node ./scripts/load-parallel.mjs; \
 	echo "Load generation finished. Stopping metrics (PID $$PID_METRICS)..."; \
 	kill $$PID_METRICS || true; \
-	rm -f metrics.log
+	rm -f metrics.log; \
+	docker compose -f docker-compose-init.yaml down --remove-orphans
 
  
 .PHONY: metrics
