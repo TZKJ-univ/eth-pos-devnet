@@ -8,7 +8,7 @@ services:
       resources:
         limits:
           cpus: "2.0"
-          memory: 6G
+          memory: 8G
     command:
       - --networkid=48815
       - --miner.recommit=1s
@@ -27,9 +27,13 @@ services:
       - --ws.api=eth,net,web3,debug,txpool
       - --ws.addr=0.0.0.0
       - --ws.origins=*
+      - --metrics
+      - --metrics.addr=0.0.0.0
+      - --metrics.port=6060
     ports:
       - 8545:8545
       - 8546:8546
+      - 6060:6060
     volumes:
       - ./data/geth:/root/.ethereum
     logging:
@@ -48,10 +52,9 @@ services:
       resources:
         limits:
           cpus: "2.0"
-          memory: 4G
+          memory: 2G
     command:
       - --datadir=/prysm/beacon
-      - --disable-monitoring
       - --min-sync-peers=0
       - --genesis-state=/prysm/genesis.ssz
       - --chain-config-file=/config/config.yml
@@ -70,11 +73,14 @@ services:
       - --rpc-port=4000
       - --p2p-static-id
       - --slots-per-archive-point=32
+      - --monitoring-host=0.0.0.0
+      - --monitoring-port=8080
     ports:
       - 12000:12000/udp
       - 13000:13000/udp
       - 13000:13000
       - 3500:3500
+      - 8080:8080
     depends_on:
       geth:
         condition: service_healthy
@@ -92,7 +98,7 @@ services:
       resources:
         limits:
           cpus: "1.0"
-          memory: 4G
+          memory: 1G
     command:
       - --beacon-rpc-provider=prysm:4000
       - --datadir=/prysm/validator

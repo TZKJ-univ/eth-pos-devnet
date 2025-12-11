@@ -38,32 +38,45 @@ const SLOTS_PER_EPOCH = readSlotsPerEpoch();
 // コンテナ名はサービス種別 + 1始まりインデックスで記録 (例: geth-1,geth-2 / prysm-1,prysm-2)
 function elContainerName(i) { return `geth-${i + 1}`; }
 function clContainerName(i) { return `prysm-${i + 1}`; }
-// 分割出力用のCSVファイル（EL/CL/Validator）
+const PROMETHEUS_URL = process.env.PROMETHEUS_URL || 'http://localhost:19090';
+
+// Prometheus instance -> container name mapping
+const PROM_INSTANCE_MAP = {
+  'host.docker.internal:8080': 'prysm-1',
+  'host.docker.internal:8081': 'prysm-2',
+  'host.docker.internal:8082': 'prysm-3',
+  'host.docker.internal:6060': 'geth-1',
+  'host.docker.internal:6061': 'geth-2',
+  'host.docker.internal:6062': 'geth-3',
+};
+
+// 分割出力用のCSVファイル（EL/CL/Validator/Performance）
 let EL_CSV = '';
-let CL_CSV = '';
+// let CL_CSV = ''; // Removed
 let VAL_CSV = '';
 let NET_CSV = '';
+let PERF_CL_CSV = '';
+let PERF_EL_CSV = '';
+
 function tsBase() { return new Date().toISOString().replace(/[:.]/g, '-'); }
 function initCsvFiles() {
   const dir = './metrics';
   fs.mkdirSync(dir, { recursive: true });
   const base = tsBase();
   EL_CSV = path.join(dir, `el-${base}.csv`);
-  CL_CSV = path.join(dir, `cl-${base}.csv`);
+  // CL_CSV = path.join(dir, `cl-${base}.csv`); // Removed
   VAL_CSV = path.join(dir, `validator-${base}.csv`);
   NET_CSV = path.join(dir, `net-${base}.csv`);
+  PERF_CL_CSV = path.join(dir, `perf-cl-${base}.csv`);
+  PERF_EL_CSV = path.join(dir, `perf-el-${base}.csv`);
+
   const elHeader = [
     // 動的指標のみ（静的/布尔は除外）
-    'ts_ms', 'container_name', 'latency_ms',
-    'block_number', 'basefee_wei', 'gasprice_wei', 'block_gas_used', 'block_gas_limit', 'peer_count', 'txpool_pending', 'txpool_queued',
+    'ts_ms', 'container_name',
+    'basefee_wei', 'gasprice_wei', 'block_gas_used', 'block_gas_limit',
     'block_tx_count'
   ].join(',') + '\n';
-  const clHeader = [
-    // 動的指標のみ（bool/hashは除外）
-    'ts_ms', 'container_name', 'latency_ms', 'peer_connected',
-    'sync_distance', 'head_slot', 'justified_epoch', 'finalized_epoch',
-    'current_epoch', 'head_finality_gap_slots'
-  ].join(',') + '\n';
+  // CL CSV is deprecated/removed
   const valHeader = [
     // boolは出力しない
     'ts_ms', 'source_container', 'avg_effective_balance_gwei'
@@ -76,10 +89,24 @@ function initCsvFiles() {
     // 集約的に意味を持つ最小限のバリデータ指標
     'validators_total', 'activation_queue_len', 'exit_queue_len', 'active_validator_count'
   ].join(',') + '\n';
+
+  const perfClHeader = [
+    'ts_ms', 'container_name',
+    'state_transition_ms', 'head_slot', 'justified_epoch', 'finalized_epoch', 'peer_count',
+    'block_import_time_sum', 'active_validators'
+  ].join(',') + '\n';
+  const perfElHeader = [
+    'ts_ms', 'container_name',
+    'txpool_pending', 'p2p_peers', 'block_number',
+    'block_exec_latency_p95'
+  ].join(',') + '\n';
+
   fs.writeFileSync(EL_CSV, elHeader);
-  fs.writeFileSync(CL_CSV, clHeader);
+  // fs.writeFileSync(CL_CSV, clHeader); // Removed
   fs.writeFileSync(VAL_CSV, valHeader);
   fs.writeFileSync(NET_CSV, netHeader);
+  fs.writeFileSync(PERF_CL_CSV, perfClHeader);
+  fs.writeFileSync(PERF_EL_CSV, perfElHeader);
 }
 
 function unixMs() { return Date.now(); }
@@ -129,6 +156,20 @@ async function beaconGetRaw(url, path) {
   return { status: res.status, latency };
 }
 
+// Prometheus Query Helper
+async function queryPrometheus(query) {
+  try {
+    const url = `${PROMETHEUS_URL}/api/v1/query?query=${encodeURIComponent(query)}`;
+    const res = await fetch(url);
+    if (!res.ok) return [];
+    const json = await res.json();
+    if (json.status !== 'success') return [];
+    return json.data.result || [];
+  } catch (e) {
+    return [];
+  }
+}
+
 function csvEsc(v) {
   if (v === undefined || v === null) return '';
   const s = String(v);
@@ -145,49 +186,26 @@ async function sampleEl(endpoint) {
   const ts_ms = unixMs();
   const endpoint_idx = EL_INDEX[endpoint] ?? MISSING;
   const containerName = elContainerName(endpoint_idx);
-  let el_latency = MISSING;
-  let blockNumber = MISSING, basefee = MISSING, gasprice = MISSING, gasUsed = MISSING, gasLimit = MISSING;
-  let peerCount = MISSING, pend = MISSING, que = MISSING, errorFlag = 0;
+  // el_latency removed
+  let basefee = MISSING, gasprice = MISSING, gasUsed = MISSING, gasLimit = MISSING;
+  let errorFlag = 0;
   let blockTxCount = MISSING;
   // syncing (bool) は出力対象外のため取得省略
   try { const { result: gp } = await jsonRpc(endpoint, 'eth_gasPrice', []); gasprice = hexToNum(gp) ?? MISSING; } catch { errorFlag = 1; }
-  try { const { result: bn, latency: l1 } = await jsonRpc(endpoint, 'eth_blockNumber', []); el_latency = l1; blockNumber = hexToNum(bn) ?? MISSING; } catch { errorFlag = 1; }
+  // blockNumber removed (moved to perf)
+  try { const { result: bn, latency: l1 } = await jsonRpc(endpoint, 'eth_blockNumber', []); /* el_latency = l1; blockNumber = hexToNum(bn) ?? MISSING; */ } catch { errorFlag = 1; }
   try { const { result: blk } = await jsonRpc(endpoint, 'eth_getBlockByNumber', ['latest', false]); if (blk) { basefee = hexToNum(blk.baseFeePerGas) ?? MISSING; gasUsed = hexToNum(blk.gasUsed) ?? MISSING; gasLimit = hexToNum(blk.gasLimit) ?? MISSING; } } catch { errorFlag = 1; }
   try { const { result: txc } = await jsonRpc(endpoint, 'eth_getBlockTransactionCountByNumber', ['latest']); blockTxCount = hexToNum(txc) ?? MISSING; } catch { errorFlag = 1; }
-  try { const { result: pc } = await jsonRpc(endpoint, 'net_peerCount', []); peerCount = hexToNum(pc) ?? MISSING; } catch { errorFlag = 1; }
-  try { const { result: st } = await jsonRpc(endpoint, 'txpool_status', []); pend = hexToNum(st?.pending) ?? MISSING; que = hexToNum(st?.queued) ?? MISSING; } catch { errorFlag = 1; }
+
   appendCsvRow(EL_CSV, [
     ts_ms, containerName,
-    el_latency,
-    blockNumber, basefee, gasprice, gasUsed, gasLimit,
-    peerCount, pend, que,
+    basefee, gasprice, gasUsed, gasLimit,
     blockTxCount
   ]);
-  return { ts_ms, containerName, el_latency, blockNumber, basefee, gasprice, gasUsed, gasLimit, peerCount, pend, que, blockTxCount };
+  return { ts_ms, containerName, basefee, gasprice, gasUsed, gasLimit, blockTxCount };
 }
 
-async function sampleCl(endpoint) {
-  const ts_ms = unixMs();
-  const endpoint_idx = CL_INDEX[endpoint] ?? MISSING;
-  const containerName = clContainerName(endpoint_idx);
-  let cl_latency = MISSING, pConn = MISSING;
-  let syncDistance = MISSING, headSlot = MISSING, justEpoch = MISSING, finEpoch = MISSING, errorFlag = 0;
-  try { const { latency: l } = await beaconGetRaw(endpoint, '/eth/v1/node/health'); cl_latency = l; } catch { errorFlag = 1; }
-  try { const { json } = await beaconGet(endpoint, '/eth/v1/node/peer_count'); const d = json.data || {}; pConn = Number(d.connected ?? d?.peer_count ?? MISSING); } catch { errorFlag = 1; }
-  try { const { json } = await beaconGet(endpoint, '/eth_v1/node/syncing'.replace('_', '/')); const data = json.data || {}; syncDistance = Number(data.sync_distance ?? MISSING); if (data.head_slot !== undefined) headSlot = Number(data.head_slot); } catch { errorFlag = 1; }
-  try { const { json } = await beaconGet(endpoint, '/eth/v1/beacon/headers/head'); const d = json.data || {}; headSlot = headSlot !== MISSING ? headSlot : Number(d?.header?.message?.slot ?? d?.slot ?? MISSING); } catch { errorFlag = 1; }
-  try { const { json } = await beaconGet(endpoint, '/eth/v1/beacon/states/head/finality_checkpoints'); const d = json.data || {}; justEpoch = Number(d?.current_justified?.epoch ?? MISSING); finEpoch = Number(d?.finalized?.epoch ?? MISSING); } catch { errorFlag = 1; }
-  const finSlot = (finEpoch !== MISSING && Number.isFinite(SLOTS_PER_EPOCH)) ? finEpoch * SLOTS_PER_EPOCH : MISSING;
-  const curEpoch = (headSlot !== MISSING && Number.isFinite(SLOTS_PER_EPOCH)) ? Math.floor(headSlot / SLOTS_PER_EPOCH) : MISSING;
-  const headFinalGap = (headSlot !== MISSING && finSlot !== MISSING) ? Math.max(0, headSlot - finSlot) : MISSING;
-  appendCsvRow(CL_CSV, [
-    ts_ms, containerName,
-    cl_latency, pConn,
-    syncDistance, headSlot, justEpoch, finEpoch,
-    curEpoch, headFinalGap
-  ]);
-  return { ts_ms, containerName, cl_latency, pConn, syncDistance, headSlot, justEpoch, finEpoch, curEpoch, headFinalGap };
-}
+// sampleCl removed (all metrics moved to perf)
 
 async function sampleNetwork() {
   // endpointはfailoverで動的に決定
@@ -240,6 +258,70 @@ async function sampleValidators() {
   appendCsvRow(VAL_CSV, [ts_ms, source, avgBal]);
 }
 
+async function samplePerfMetrics() {
+  const ts_ms = unixMs();
+  // Query Prometheus
+  // 1. Metric 1: state_transition_processing_milliseconds_sum (Prysm) OR txpool_pending (Geth)
+  // 2. Metric 2: beacon_head_slot (Prysm) OR p2p_peers (Geth)
+  // 3. Metric 3: beacon_current_justified_epoch (Prysm) OR chain_head_block (Geth)
+  // 4. Metric 4: beacon_finalized_epoch (Prysm)
+  // 5. Metric 5: p2p_peer_count (Prysm)
+  // 6. Metric 6: chain_service_processing_milliseconds_sum (Prysm) OR chain_execution{quantile="0.95"} (Geth)
+  // 7. Metric 7: beacon_current_active_validators (Prysm)
+  const [res1, res2, res3, res4, res5, res6, res7] = await Promise.all([
+    queryPrometheus('(state_transition_processing_milliseconds_sum or txpool_pending) and on(instance) up == 1'),
+    queryPrometheus('(beacon_head_slot or p2p_peers) and on(instance) up == 1'),
+    queryPrometheus('(beacon_current_justified_epoch or chain_head_block) and on(instance) up == 1'),
+    queryPrometheus('beacon_finalized_epoch and on(instance) up == 1'),
+    queryPrometheus('p2p_peer_count{state="Connected"} and on(instance) up == 1'),
+    queryPrometheus('(chain_service_processing_milliseconds_sum or chain_execution{quantile="0.95"}) and on(instance) up == 1'),
+    queryPrometheus('beacon_current_active_validators and on(instance) up == 1')
+  ]);
+
+  // Aggregate by container
+  const data = {}; // container -> { m1, m2, m3, m4, m5, m6, m7 }
+
+  // Initialize with all expected containers and default values
+  const expectedContainers = [
+    ...Object.values(PROM_INSTANCE_MAP), // geth-1..3, prysm-1..3
+  ];
+  for (const c of expectedContainers) {
+    data[c] = { m1: MISSING, m2: MISSING, m3: MISSING, m4: MISSING, m5: MISSING, m6: MISSING, m7: MISSING };
+  }
+
+  // Helper to extract container name from metric labels
+  const getContainer = (metric) => {
+    const instance = metric.instance;
+    return PROM_INSTANCE_MAP[instance] || instance; // Fallback to raw instance if not mapped
+  };
+
+  const update = (res, key) => {
+    res.forEach(r => {
+      const c = getContainer(r.metric);
+      if (data[c]) { // Only update if container is expected (or already in data)
+        data[c][key] = Number(r.value[1]);
+      }
+    });
+  };
+
+  update(res1, 'm1');
+  update(res2, 'm2');
+  update(res3, 'm3');
+  update(res4, 'm4');
+  update(res5, 'm5');
+  update(res6, 'm6');
+  update(res7, 'm7');
+
+  // Write rows
+  for (const [container, metrics] of Object.entries(data)) {
+    if (container.startsWith('prysm')) {
+      appendCsvRow(PERF_CL_CSV, [ts_ms, container, metrics.m1, metrics.m2, metrics.m3, metrics.m4, metrics.m5, metrics.m6, metrics.m7]);
+    } else if (container.startsWith('geth')) {
+      appendCsvRow(PERF_EL_CSV, [ts_ms, container, metrics.m1, metrics.m2, metrics.m3, metrics.m6]);
+    }
+  }
+}
+
 async function main() {
   // graceful stop on Ctrl+C / SIGTERM
   let stop = false;
@@ -252,9 +334,10 @@ async function main() {
   while (!stop && Date.now() < endAt) {
     await Promise.allSettled([
       ...EL_ENDPOINTS.map(e => sampleEl(e)),
-      ...CL_ENDPOINTS.map(b => sampleCl(b)),
+      // ...CL_ENDPOINTS.map(b => sampleCl(b)), // Removed
       sampleValidators(),
       sampleNetwork(),
+      samplePerfMetrics(),
     ]);
     nextAt += INTERVAL_MS; // 次のターゲット時刻
     const now = Date.now();

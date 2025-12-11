@@ -13,6 +13,7 @@ init:
 unexport PRYSM_BOOTSTRAP_ENR
 
 start:
+	docker compose --env-file .env -f docker-compose-monitoring.yml up -d
 	docker compose --env-file .env -f docker-compose-set1.yml up -d geth prysm
 	node ./scripts/bootstrap-enode.mjs
 	- node ./scripts/bootstrap-enr.mjs || true
@@ -30,6 +31,7 @@ stop:
 	docker compose -f docker-compose-set3.yml down
 	docker compose -f docker-compose-set2.yml down
 	docker compose -f docker-compose-set1.yml down
+	docker compose -f docker-compose-monitoring.yml down
 
 reset: stop
 	rm -Rf ./data && sleep 1
@@ -69,6 +71,16 @@ fresh:
 fresh-load:
 	$(MAKE) fresh
 	$(LOAD_DEFAULT_ENV) ENDPOINTS=$${ENDPOINTS:-http://127.0.0.1:8545,http://127.0.0.1:8547,http://127.0.0.1:8548} DIRECT_TRANSFER=$${DIRECT_TRANSFER:-1} node ./scripts/load-parallel.mjs
+
+fresh-load-metrics:
+	$(MAKE) fresh
+	@echo "Starting metrics collection in background..."
+	$(MAKE) metrics > metrics.log 2>&1 & PID_METRICS=$$!; \
+	echo "Starting load generation..."; \
+	$(LOAD_DEFAULT_ENV) ENDPOINTS=$${ENDPOINTS:-http://127.0.0.1:8545,http://127.0.0.1:8547,http://127.0.0.1:8548} DIRECT_TRANSFER=$${DIRECT_TRANSFER:-1} node ./scripts/load-parallel.mjs; \
+	echo "Load generation finished. Stopping metrics (PID $$PID_METRICS)..."; \
+	kill $$PID_METRICS || true; \
+	rm -f metrics.log
 
  
 .PHONY: metrics
