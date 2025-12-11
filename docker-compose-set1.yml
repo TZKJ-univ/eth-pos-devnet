@@ -69,6 +69,7 @@ services:
       - --rpc-host=0.0.0.0
       - --rpc-port=4000
       - --p2p-static-id
+      - --slots-per-archive-point=32
     ports:
       - 12000:12000/udp
       - 13000:13000/udp

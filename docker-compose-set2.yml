@@ -72,6 +72,7 @@ services:
       - --rpc-host=0.0.0.0
       - --rpc-port=4000
       - --p2p-static-id
+      - --slots-per-archive-point=32
     depends_on:
       geth-2:
         condition: service_healthy
