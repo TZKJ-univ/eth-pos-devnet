@@ -32,7 +32,7 @@ services:
       - --metrics.addr=0.0.0.0
       - --metrics.port=6060
     volumes:
-      - ./data/geth-2:/root/.ethereum
+      - geth-data-2:/root/.ethereum
     logging:
       driver: "local"
     ports:
@@ -59,12 +59,12 @@ services:
       - --min-sync-peers=0
       - --enable-debug-rpc-endpoints
       - --checkpoint-sync-url=http://prysm:3500
-      - --genesis-state=/sharedprysm/genesis.ssz
+      - --genesis-state=/prysm/genesis.ssz
       - --peer=${PRYSM_PEERS_2}
       - --chain-config-file=/config/config.yml
       - --contract-deployment-block=0
       - --chain-id=48815
-      - --execution-endpoint=/geth-2/geth.ipc
+      - --execution-endpoint=http://geth-2:8551
       - --jwt-secret=/geth-2/geth/jwtsecret
       - --accept-terms-of-use
       - --suggested-fee-recipient=0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266
@@ -82,9 +82,9 @@ services:
       geth-2:
         condition: service_healthy
     volumes:
-      - ./data/prysm-2:/prysm
-      - ./data/geth-2:/geth-2
-      - ./data/prysm:/sharedprysm:ro
+      - prysm-data-2:/prysm
+      - ./data/prysm/genesis.ssz:/prysm/genesis.ssz:ro
+      - geth-data-2:/geth-2
       - ./config/config.yml:/config/config.yml:ro
     logging:
       driver: "local"
@@ -114,7 +114,11 @@ services:
       prysm-2:
         condition: service_started
     volumes:
-      - ./data/prysm-2:/prysm
+      - prysm-data-2:/prysm
       - ./config/config.yml:/config/config.yml:ro
     logging:
       driver: "local"
+
+volumes:
+  geth-data-2:
+  prysm-data-2:

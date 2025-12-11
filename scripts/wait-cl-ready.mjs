@@ -21,7 +21,7 @@ async function getSyncing(url) {
 }
 
 (async () => {
-  process.stdout.write(`Waiting for CL (Prysm) to exit optimistic mode at ${BEACON_URLS.join(', ')} (timeout ${DEFAULT_TIMEOUT_MS/1000}s)\n`);
+  process.stdout.write(`Waiting for CL (Prysm) to exit optimistic mode at ${BEACON_URLS.join(', ')} (timeout ${DEFAULT_TIMEOUT_MS / 1000}s)\n`);
   while (true) {
     try {
       let anyNonOptimistic = false;
@@ -33,15 +33,21 @@ async function getSyncing(url) {
           const isSyncing = !!data.is_syncing;
           const headSlotStr = data.head_slot ?? '0';
           const headSlot = Number.parseInt(String(headSlotStr), 10) || 0;
-          console.log(`${isOptimistic ? '...waiting' : 'CL ready'} @ ${url}: optimistic=${isOptimistic}, syncing=${isSyncing}, head_slot=${headSlot}`);
-          if (!isOptimistic) anyNonOptimistic = true;
+          console.log(`${isOptimistic ? '...waiting (optimistic)' : (isSyncing ? '...waiting (syncing)' : 'CL ready')} @ ${url}: optimistic=${isOptimistic}, syncing=${isSyncing}, head_slot=${headSlot}`);
+
+          if (!isOptimistic && !isSyncing) {
+            // This node is ready
+          } else {
+            allReachable = false; // Treat syncing/optimistic as not reachable/ready for our purpose
+          }
         } catch (e) {
           console.log(`...beacon not ready yet @ ${url}: ${(e && e.message) || e}`);
           allReachable = false;
         }
       }
-      // Success if: 全ビーコンが応答し、かつ少なくとも1台が非optimistic
-      if (allReachable && anyNonOptimistic) {
+
+      // Success if all nodes are reachable, non-optimistic, and non-syncing
+      if (allReachable) {
         process.exit(0);
       }
     } catch (err) {

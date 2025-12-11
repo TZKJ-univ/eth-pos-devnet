@@ -3,12 +3,20 @@ TOTAL_TARGET_TPS=$${TOTAL_TARGET_TPS:-120} \
 TOTAL_WORKERS=$${TOTAL_WORKERS:-300} \
 DURATION_SEC=$${DURATION_SEC:-20}
 endef
+
 define RESTART_DEFAULT_ENV
 RESTART_INTERVAL_SEC=$${RESTART_INTERVAL_SEC:-20} \
 CLEAR_MEMPOOL=$${CLEAR_MEMPOOL:-0}
 endef
+
+
+
 init:
 	docker compose -f docker-compose-init.yaml up && docker compose -f docker-compose-init.yaml down
+	@echo "Populating named volumes with initialized data..."
+	docker run --rm -v $(CURDIR)/data/geth:/source -v devnet_geth-data-1:/dest alpine cp -a /source/. /dest/
+	docker run --rm -v $(CURDIR)/data/geth-2:/source -v devnet_geth-data-2:/dest alpine cp -a /source/. /dest/
+	docker run --rm -v $(CURDIR)/data/geth-3:/source -v devnet_geth-data-3:/dest alpine cp -a /source/. /dest/
 
 unexport PRYSM_BOOTSTRAP_ENR
 
@@ -35,6 +43,7 @@ stop:
 
 reset: stop
 	rm -Rf ./data && sleep 1
+	docker volume rm devnet_geth-data-1 devnet_prysm-data-1 devnet_geth-data-2 devnet_prysm-data-2 devnet_geth-data-3 devnet_prysm-data-3 || true
 	sed -i '' '/^PRYSM_BOOTSTRAP_ENR/d' .env || true
 	sed -i '' '/^PRYSM_PEERS_/d' .env || true
 
@@ -54,7 +63,7 @@ fresh:
 	# Seed Engine API forkchoice at genesis on all ELs
 	docker run --rm \
 	  --network devnet_default \
-	  -v $$(pwd)/data:/data:ro \
+	  $(HELPER_VOL_ARGS) \
 	  -v $$(pwd)/scripts:/scripts:ro \
 	  -e SECONDS_PER_SLOT=$${SECONDS_PER_SLOT:-2} \
 	  node:22-alpine node /scripts/engine-seed.mjs
@@ -113,7 +122,7 @@ downup-set1:
 	# Pre-warm for set1 geth/prysm before validator
 	docker run --rm \
 	  --network devnet_default \
-	  -v $$(pwd)/data:/data:ro \
+	  $(HELPER_VOL_ARGS) \
 	  -v $$(pwd)/scripts:/scripts:ro \
 	  -e ENGINE_NAME=geth-1 \
 	  -e ENGINE_JWT=/data/geth/geth/jwtsecret \
@@ -122,7 +131,7 @@ downup-set1:
 	  node:22-alpine node /scripts/engine-refresh-fcu.mjs || true
 	docker run --rm \
 	  --network devnet_default \
-	  -v $$(pwd)/data:/data:ro \
+	  $(HELPER_VOL_ARGS) \
 	  -v $$(pwd)/scripts:/scripts:ro \
 	  -e ENGINE_NAME=geth-1 \
 	  -e ENGINE_JWT=/data/geth/geth/jwtsecret \
@@ -135,7 +144,7 @@ downup-set1:
 	sleep 1
 	docker run --rm \
 	  --network devnet_default \
-	  -v $$(pwd)/data:/data:ro \
+	  $(HELPER_VOL_ARGS) \
 	  -v $$(pwd)/scripts:/scripts:ro \
 	  -e ENGINE_NAME=geth-1 \
 	  -e ENGINE_JWT=/data/geth/geth/jwtsecret \
@@ -147,12 +156,12 @@ downup-set1:
 	  node:22-alpine node /scripts/engine-warm.mjs || true
 	sleep 2
 	# Wait for beacon-1 readiness and peer formation before starting validator-1
-	BEACON_URLS="http://127.0.0.1:3500" WAIT_CL_TIMEOUT_MS=$${WAIT_CL_TIMEOUT_MS:-60000} node ./scripts/wait-cl-ready.mjs || true
+	BEACON_URLS="http://127.0.0.1:3500" WAIT_CL_TIMEOUT_MS=$${WAIT_CL_TIMEOUT_MS:-600000} node ./scripts/wait-cl-ready.mjs
 	docker compose -f docker-compose-set1.yml up -d validator
 	sleep $${SECONDS_PER_SLOT:-2}
 	docker run --rm \
 	  --network devnet_default \
-	  -v $$(pwd)/data:/data:ro \
+	  $(HELPER_VOL_ARGS) \
 	  -v $$(pwd)/scripts:/scripts:ro \
 	  -e ENGINE_NAME=geth-1 \
 	  -e ENGINE_JWT=/data/geth/geth/jwtsecret \
@@ -161,7 +170,7 @@ downup-set1:
 	  node:22-alpine node /scripts/engine-refresh-fcu.mjs || true
 	docker run --rm \
 	  --network devnet_default \
-	  -v $$(pwd)/data:/data:ro \
+	  $(HELPER_VOL_ARGS) \
 	  -v $$(pwd)/scripts:/scripts:ro \
 	  -e ENGINE_NAME=geth-1 \
 	  -e ENGINE_JWT=/data/geth/geth/jwtsecret \
@@ -175,7 +184,7 @@ downup-set1:
 	sleep 1
 	docker run --rm \
 	  --network devnet_default \
-	  -v $$(pwd)/data:/data:ro \
+	  $(HELPER_VOL_ARGS) \
 	  -v $$(pwd)/scripts:/scripts:ro \
 	  -e ENGINE_NAME=geth-1 \
 	  -e ENGINE_JWT=/data/geth/geth/jwtsecret \
@@ -206,7 +215,7 @@ downup-set2:
 	# Pre-warm for set2 geth/prysm before validator
 	docker run --rm \
 	  --network devnet_default \
-	  -v $$(pwd)/data:/data:ro \
+	  $(HELPER_VOL_ARGS) \
 	  -v $$(pwd)/scripts:/scripts:ro \
 	  -e ENGINE_NAME=geth-2 \
 	  -e ENGINE_JWT=/data/geth-2/geth/jwtsecret \
@@ -215,7 +224,7 @@ downup-set2:
 	  node:22-alpine node /scripts/engine-refresh-fcu.mjs || true
 	docker run --rm \
 	  --network devnet_default \
-	  -v $$(pwd)/data:/data:ro \
+	  $(HELPER_VOL_ARGS) \
 	  -v $$(pwd)/scripts:/scripts:ro \
 	  -e ENGINE_NAME=geth-2 \
 	  -e ENGINE_JWT=/data/geth-2/geth/jwtsecret \
@@ -228,7 +237,7 @@ downup-set2:
 	sleep 1
 	docker run --rm \
 	  --network devnet_default \
-	  -v $$(pwd)/data:/data:ro \
+	  $(HELPER_VOL_ARGS) \
 	  -v $$(pwd)/scripts:/scripts:ro \
 	  -e ENGINE_NAME=geth-2 \
 	  -e ENGINE_JWT=/data/geth-2/geth/jwtsecret \
@@ -240,12 +249,12 @@ downup-set2:
 	  node:22-alpine node /scripts/engine-warm.mjs || true
 	sleep 2
 	# Wait for beacon-2 readiness and peer formation before starting validator-2
-	BEACON_URLS="http://127.0.0.1:3502" WAIT_CL_TIMEOUT_MS=$${WAIT_CL_TIMEOUT_MS:-60000} node ./scripts/wait-cl-ready.mjs || true
+	BEACON_URLS="http://127.0.0.1:3502" WAIT_CL_TIMEOUT_MS=$${WAIT_CL_TIMEOUT_MS:-600000} node ./scripts/wait-cl-ready.mjs
 	docker compose -f docker-compose-set2.yml up -d validator-2
 	sleep $${SECONDS_PER_SLOT:-2}
 	docker run --rm \
 	  --network devnet_default \
-	  -v $$(pwd)/data:/data:ro \
+	  $(HELPER_VOL_ARGS) \
 	  -v $$(pwd)/scripts:/scripts:ro \
 	  -e ENGINE_NAME=geth-2 \
 	  -e ENGINE_JWT=/data/geth-2/geth/jwtsecret \
@@ -254,7 +263,7 @@ downup-set2:
 	  node:22-alpine node /scripts/engine-refresh-fcu.mjs || true
 	docker run --rm \
 	  --network devnet_default \
-	  -v $$(pwd)/data:/data:ro \
+	  $(HELPER_VOL_ARGS) \
 	  -v $$(pwd)/scripts:/scripts:ro \
 	  -e ENGINE_NAME=geth-2 \
 	  -e ENGINE_JWT=/data/geth-2/geth/jwtsecret \
@@ -268,7 +277,7 @@ downup-set2:
 	sleep 1
 	docker run --rm \
 	  --network devnet_default \
-	  -v $$(pwd)/data:/data:ro \
+	  $(HELPER_VOL_ARGS) \
 	  -v $$(pwd)/scripts:/scripts:ro \
 	  -e ENGINE_NAME=geth-2 \
 	  -e ENGINE_JWT=/data/geth-2/geth/jwtsecret \
@@ -299,7 +308,7 @@ downup-set3:
 	# Pre-warm for set3 geth/prysm before validator
 	docker run --rm \
 	  --network devnet_default \
-	  -v $$(pwd)/data:/data:ro \
+	  $(HELPER_VOL_ARGS) \
 	  -v $$(pwd)/scripts:/scripts:ro \
 	  -e ENGINE_NAME=geth-3 \
 	  -e ENGINE_JWT=/data/geth-3/geth/jwtsecret \
@@ -308,7 +317,7 @@ downup-set3:
 	  node:22-alpine node /scripts/engine-refresh-fcu.mjs || true
 	docker run --rm \
 	  --network devnet_default \
-	  -v $$(pwd)/data:/data:ro \
+	  $(HELPER_VOL_ARGS) \
 	  -v $$(pwd)/scripts:/scripts:ro \
 	  -e ENGINE_NAME=geth-3 \
 	  -e ENGINE_JWT=/data/geth-3/geth/jwtsecret \
@@ -321,7 +330,7 @@ downup-set3:
 	sleep 1
 	docker run --rm \
 	  --network devnet_default \
-	  -v $$(pwd)/data:/data:ro \
+	  $(HELPER_VOL_ARGS) \
 	  -v $$(pwd)/scripts:/scripts:ro \
 	  -e ENGINE_NAME=geth-3 \
 	  -e ENGINE_JWT=/data/geth-3/geth/jwtsecret \
@@ -333,12 +342,12 @@ downup-set3:
 	  node:22-alpine node /scripts/engine-warm.mjs || true
 	sleep 2
 	# Wait for beacon-3 readiness and peer formation before starting validator-3
-	BEACON_URLS="http://127.0.0.1:3503" WAIT_CL_TIMEOUT_MS=$${WAIT_CL_TIMEOUT_MS:-60000} node ./scripts/wait-cl-ready.mjs || true
+	BEACON_URLS="http://127.0.0.1:3503" WAIT_CL_TIMEOUT_MS=$${WAIT_CL_TIMEOUT_MS:-600000} node ./scripts/wait-cl-ready.mjs
 	docker compose -f docker-compose-set3.yml up -d validator-3
 	sleep $${SECONDS_PER_SLOT:-2}
 	docker run --rm \
 	  --network devnet_default \
-	  -v $$(pwd)/data:/data:ro \
+	  $(HELPER_VOL_ARGS) \
 	  -v $$(pwd)/scripts:/scripts:ro \
 	  -e ENGINE_NAME=geth-3 \
 	  -e ENGINE_JWT=/data/geth-3/geth/jwtsecret \
@@ -347,7 +356,7 @@ downup-set3:
 	  node:22-alpine node /scripts/engine-refresh-fcu.mjs || true
 	docker run --rm \
 	  --network devnet_default \
-	  -v $$(pwd)/data:/data:ro \
+	  $(HELPER_VOL_ARGS) \
 	  -v $$(pwd)/scripts:/scripts:ro \
 	  -e ENGINE_NAME=geth-3 \
 	  -e ENGINE_JWT=/data/geth-3/geth/jwtsecret \
@@ -361,7 +370,7 @@ downup-set3:
 	sleep 1
 	docker run --rm \
 	  --network devnet_default \
-	  -v $$(pwd)/data:/data:ro \
+	  $(HELPER_VOL_ARGS) \
 	  -v $$(pwd)/scripts:/scripts:ro \
 	  -e ENGINE_NAME=geth-3 \
 	  -e ENGINE_JWT=/data/geth-3/geth/jwtsecret \
@@ -401,3 +410,10 @@ downup-all-every:
 	  echo "[downup-all-every] Restarting set3..."; \
 	  $(MAKE) downup-set3; \
 	done'
+
+# --- Configuration & Internal Variables ---
+
+
+
+HELPER_VOL_ARGS := -v $(CURDIR)/data:/data:ro
+HELPER_VOL_ARGS += -v devnet_geth-data-1:/data/geth:ro -v devnet_geth-data-2:/data/geth-2:ro -v devnet_geth-data-3:/data/geth-3:ro

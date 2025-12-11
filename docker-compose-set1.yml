@@ -35,7 +35,7 @@ services:
       - 8546:8546
       - 6060:6060
     volumes:
-      - ./data/geth:/root/.ethereum
+      - geth-data-1:/root/.ethereum
     logging:
       driver: "local"
     healthcheck:
@@ -60,7 +60,7 @@ services:
       - --chain-config-file=/config/config.yml
       - --contract-deployment-block=0
       - --chain-id=48815
-      - --execution-endpoint=/geth/geth.ipc
+      - --execution-endpoint=http://geth:8551
       - --jwt-secret=/geth/geth/jwtsecret
       - --accept-terms-of-use
       - --peer=${PRYSM_PEERS_1}
@@ -85,8 +85,9 @@ services:
       geth:
         condition: service_healthy
     volumes:
-      - ./data/prysm:/prysm
-      - ./data/geth:/geth
+      - prysm-data-1:/prysm
+      - ./data/prysm/genesis.ssz:/prysm/genesis.ssz:ro
+      - geth-data-1:/geth
       - ./config/config.yml:/config/config.yml:ro
     logging:
       driver: "local"
@@ -110,7 +111,11 @@ services:
       prysm:
         condition: service_started
     volumes:
-      - ./data/prysm:/prysm
+      - prysm-data-1:/prysm
       - ./config/config.yml:/config/config.yml:ro
     logging:
       driver: "local"
+
+volumes:
+  geth-data-1:
+  prysm-data-1:
