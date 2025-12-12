@@ -197,7 +197,12 @@ downup-set1:
 	  node:22-alpine node /scripts/engine-warm.mjs || true
 	RPC_URLS="http://127.0.0.1:8545" node ./scripts/wait-el-head.mjs || true
 	npm --prefix ./scripts ci || npm --prefix ./scripts i
-	RPC_URLS="http://127.0.0.1:8545" BEACON_URLS="http://127.0.0.1:3500" HEALTH_MAX_WAIT_SEC=$${HEALTH_MAX_WAIT_SEC:-120} node ./scripts/check-health.mjs || true
+	@START_TIME=$$(date +%s); \
+	RPC_URLS="http://127.0.0.1:8545" BEACON_URLS="http://127.0.0.1:3500" HEALTH_MAX_WAIT_SEC=$${HEALTH_MAX_WAIT_SEC:-120} node ./scripts/check-health.mjs || true; \
+	END_TIME=$$(date +%s); \
+	DURATION=$$((END_TIME - START_TIME)); \
+	mkdir -p metrics; \
+	echo "Downtime for set1: $$DURATION seconds" > metrics/downtime_set1_$$(date +%Y-%m-%dT%H-%M-%S).txt
 	- $(MAKE) bootstrap-all || true
 
 .PHONY: downup-set2
@@ -290,7 +295,12 @@ downup-set2:
 	  node:22-alpine node /scripts/engine-warm.mjs || true
 	RPC_URLS="http://127.0.0.1:8547" node ./scripts/wait-el-head.mjs || true
 	npm --prefix ./scripts ci || npm --prefix ./scripts i
-	RPC_URLS="http://127.0.0.1:8547" BEACON_URLS="http://127.0.0.1:3502" HEALTH_MAX_WAIT_SEC=$${HEALTH_MAX_WAIT_SEC:-40} node ./scripts/check-health.mjs || true
+	@START_TIME=$$(date +%s); \
+	RPC_URLS="http://127.0.0.1:8547" BEACON_URLS="http://127.0.0.1:3502" HEALTH_MAX_WAIT_SEC=$${HEALTH_MAX_WAIT_SEC:-40} node ./scripts/check-health.mjs || true; \
+	END_TIME=$$(date +%s); \
+	DURATION=$$((END_TIME - START_TIME)); \
+	mkdir -p metrics; \
+	echo "Downtime for set2: $$DURATION seconds" > metrics/downtime_set2_$$(date +%Y-%m-%dT%H-%M-%S).txt
 	- $(MAKE) bootstrap-all || true
 
 .PHONY: downup-set3
@@ -383,7 +393,12 @@ downup-set3:
 	  node:22-alpine node /scripts/engine-warm.mjs || true
 	RPC_URLS="http://127.0.0.1:8548" node ./scripts/wait-el-head.mjs || true
 	npm --prefix ./scripts ci || npm --prefix ./scripts i
-	RPC_URLS="http://127.0.0.1:8548" BEACON_URLS="http://127.0.0.1:3503" HEALTH_MAX_WAIT_SEC=$${HEALTH_MAX_WAIT_SEC:-40} node ./scripts/check-health.mjs || true
+	@START_TIME=$$(date +%s); \
+	RPC_URLS="http://127.0.0.1:8548" BEACON_URLS="http://127.0.0.1:3503" HEALTH_MAX_WAIT_SEC=$${HEALTH_MAX_WAIT_SEC:-40} node ./scripts/check-health.mjs || true; \
+	END_TIME=$$(date +%s); \
+	DURATION=$$((END_TIME - START_TIME)); \
+	mkdir -p metrics; \
+	echo "Downtime for set3: $$DURATION seconds" > metrics/downtime_set3_$$(date +%Y-%m-%dT%H-%M-%S).txt
 	- $(MAKE) bootstrap-all || true
 
 .PHONY: downup-set3-every

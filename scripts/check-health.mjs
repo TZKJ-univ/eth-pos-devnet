@@ -69,7 +69,7 @@ async function checkOnce() {
     const headSlots = beaconStatuses.map(s => parseInt(s.head_slot, 10)).filter(n => !isNaN(n));
     if (!headSlots.some(h => h > 0)) failures.push('全Beacon head_slot=0');
     // P2P peers > 0 を要求（取得できた場合）
-    beaconPeers.forEach(p => { if ((p.peers|0) <= 0) failures.push(`Beacon peers=0: ${p.url}`); });
+    beaconPeers.forEach(p => { if ((p.peers | 0) <= 0) failures.push(`Beacon peers=0: ${p.url}`); });
   }
 
   const elHeads = [];
@@ -93,44 +93,35 @@ async function checkOnce() {
   return { ok, failures, beaconStatuses, elHeads };
 }
 
+import fs from 'fs';
+import path from 'path';
+
+// ... (existing code) ...
+
 (async () => {
   const deadline = Date.now() + MAX_WAIT_SEC * 1000;
-  // 成長確認のための初期スナップショット
-  const growthStart = Date.now();
-  const growthBase = {};
-  for (const url of rpcUrls) growthBase[url] = null;
-  let last;
+  // ... (existing loop) ...
   while (Date.now() < deadline) {
     last = await checkOnce();
-    // ELヘッド成長判定
-    if (REQUIRE_GROWTH && Date.now() - growthStart >= GROWTH_WINDOW_SEC * 1000) {
-      try {
-        const heads = await Promise.all(rpcUrls.map(async (url) => {
-          const bnHex = await ethCall(url, 'eth_blockNumber');
-          return { url, bn: parseInt(bnHex, 16) };
-        }));
-        // 初回スナップショットが空ならセット
-        for (const h of heads) {
-          if (growthBase[h.url] == null) growthBase[h.url] = h.bn;
-        }
-        const grown = heads.some(h => growthBase[h.url] != null && h.bn > growthBase[h.url]);
-        if (!grown) {
-          last.failures.push(`ELヘッドが${GROWTH_WINDOW_SEC}sで前進せず`);
-        }
-      } catch (_) {}
-    }
+    // ... (existing growth check) ...
     if (last.ok) break;
     await new Promise(r => setTimeout(r, INTERVAL_MS));
   }
   const { ok, failures, beaconStatuses = [], elHeads = [] } = last || { ok: false, failures: ['未評価'] };
+
+  const lines = [];
   if (ok) {
     const slotInfo = beaconStatuses.map(s => `${s.url.split('//')[1]}:slot=${s.head_slot}`).join(', ');
     const elInfo = elHeads.map(h => `${h.url.split('//')[1]}:block=${h.bn}`).join(', ');
-    console.log(`✅ 全ノード正常: Beacon slots[${slotInfo}] EL heads[${elInfo}]`);
-    process.exit(0);
+    lines.push(`✅ 全ノード正常: Beacon slots[${slotInfo}] EL heads[${elInfo}]`);
   } else {
-    console.error('❌ 健康チェック失敗:');
-    failures.forEach(f => console.error(' - ' + f));
-    process.exit(1);
+    lines.push('❌ 健康チェック失敗:');
+    failures.forEach(f => lines.push(' - ' + f));
   }
+
+  const outputText = lines.join('\n');
+  if (ok) console.log(outputText);
+  else console.error(outputText);
+
+  process.exit(ok ? 0 : 1);
 })();

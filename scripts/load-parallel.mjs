@@ -99,12 +99,12 @@ function launchNode(i) {
     ONLY_HTTP: '1',
     USE_RAW_SEND: '1',
     BURST_MULTIPLIER: process.env.BURST_MULTIPLIER || '1',
-  // FUND_WORKERS/FUND_TOP_N が明示的に与えられていればそれを優先、なければ子0のみ資金補充
-  FUND_WORKERS: process.env.FUND_WORKERS !== undefined ? process.env.FUND_WORKERS : (i === 0 ? '1' : '0'),
-  FUND_TOP_N: process.env.FUND_TOP_N !== undefined ? process.env.FUND_TOP_N : (i === 0 ? String(workersList.reduce((a,b)=>a+b,0)) : '0'),
-  FUND_WAIT: process.env.FUND_WAIT || '1',
+    // FUND_WORKERS/FUND_TOP_N が明示的に与えられていればそれを優先、なければ子0のみ資金補充
+    FUND_WORKERS: process.env.FUND_WORKERS !== undefined ? process.env.FUND_WORKERS : (i === 0 ? '1' : '0'),
+    FUND_TOP_N: process.env.FUND_TOP_N !== undefined ? process.env.FUND_TOP_N : (i === 0 ? String(workersList.reduce((a, b) => a + b, 0)) : '0'),
+    FUND_WAIT: process.env.FUND_WAIT || '1',
     URL_OFFSET: String(i),
-    ACCOUNT_OFFSET: String(workersList.slice(0, i).reduce((a,b)=>a+b,0)),
+    ACCOUNT_OFFSET: String(workersList.slice(0, i).reduce((a, b) => a + b, 0)),
     ...extraEnv
   };
   // Failoverさせるため、各子に全ENDPOINTSを渡す（load-forward側がURL_OFFSETで分散）
@@ -146,13 +146,29 @@ function startAggregation() {
         totalSent += o.sent; totalSucc += o.succ; totalFail += o.fail; perNode.push(o);
       } catch { /* ignore */ }
     });
-    perNode.sort((a,b)=>a.idx-b.idx);
-    console.log('==== Parallel summary ====');
-    perNode.forEach(o => console.log(`node${o.idx}: sent=${o.sent} succ=${o.succ} fail=${o.fail}`));
-    console.log(`TOTAL: sent=${totalSent} succ=${totalSucc} fail=${totalFail}`);
+    perNode.sort((a, b) => a.idx - b.idx);
+
+    const lines = [];
+    lines.push('==== Parallel summary ====');
+    perNode.forEach(o => lines.push(`node${o.idx}: sent=${o.sent} succ=${o.succ} fail=${o.fail}`));
+    lines.push(`TOTAL: sent=${totalSent} succ=${totalSucc} fail=${totalFail}`);
     // 簡易TPS (成功のみ / duration)
     const tps = (totalSucc / duration).toFixed(2);
-    console.log(`Approx TPS (succ/duration): ${tps}`);
+    lines.push(`Approx TPS (succ/duration): ${tps}`);
+
+    const summaryText = lines.join('\n');
+    console.log(summaryText);
+
+    // Save to metrics directory
+    const metricsDir = path.join(process.cwd(), 'metrics');
+    if (!fs.existsSync(metricsDir)) {
+      fs.mkdirSync(metricsDir, { recursive: true });
+    }
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const logPath = path.join(metricsDir, `load_summary_${timestamp}.txt`);
+    fs.writeFileSync(logPath, summaryText);
+    console.log(`Saved summary to ${logPath}`);
+
     process.exit(0);
   }).catch(e => {
     console.error('Parallel load error', e);
