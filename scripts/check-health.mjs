@@ -100,6 +100,7 @@ import path from 'path';
 
 (async () => {
   const deadline = Date.now() + MAX_WAIT_SEC * 1000;
+  let last;
   // ... (existing loop) ...
   while (Date.now() < deadline) {
     last = await checkOnce();
