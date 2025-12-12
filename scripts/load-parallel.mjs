@@ -17,6 +17,8 @@
  * 既定で ONLY_HTTP=1 USE_RAW_SEND=1 BURST_MULTIPLIER=1 を付与。
  */
 import { spawn } from 'child_process';
+import fs from 'fs';
+import path from 'path';
 
 function parseList(v) {
   return (v || '').split(/[,\s]+/).filter(Boolean);
