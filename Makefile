@@ -156,7 +156,7 @@ downup-set1:
 	  node:22-alpine node /scripts/engine-warm.mjs || true
 	sleep 2
 	# Wait for beacon-1 readiness and peer formation before starting validator-1
-	BEACON_URLS="http://127.0.0.1:3500" WAIT_CL_TIMEOUT_MS=$${WAIT_CL_TIMEOUT_MS:-600000} node ./scripts/wait-cl-ready.mjs
+	BEACON_URLS="http://127.0.0.1:3500" WAIT_CL_TIMEOUT_MS=$${WAIT_CL_TIMEOUT_MS:-1200000} node ./scripts/wait-cl-ready.mjs
 	docker compose -f docker-compose-set1.yml up -d validator
 	sleep $${SECONDS_PER_SLOT:-2}
 	docker run --rm \
@@ -254,7 +254,7 @@ downup-set2:
 	  node:22-alpine node /scripts/engine-warm.mjs || true
 	sleep 2
 	# Wait for beacon-2 readiness and peer formation before starting validator-2
-	BEACON_URLS="http://127.0.0.1:3502" WAIT_CL_TIMEOUT_MS=$${WAIT_CL_TIMEOUT_MS:-600000} node ./scripts/wait-cl-ready.mjs
+	BEACON_URLS="http://127.0.0.1:3502" WAIT_CL_TIMEOUT_MS=$${WAIT_CL_TIMEOUT_MS:-1200000} node ./scripts/wait-cl-ready.mjs
 	docker compose -f docker-compose-set2.yml up -d validator-2
 	sleep $${SECONDS_PER_SLOT:-2}
 	docker run --rm \
@@ -352,7 +352,7 @@ downup-set3:
 	  node:22-alpine node /scripts/engine-warm.mjs || true
 	sleep 2
 	# Wait for beacon-3 readiness and peer formation before starting validator-3
-	BEACON_URLS="http://127.0.0.1:3503" WAIT_CL_TIMEOUT_MS=$${WAIT_CL_TIMEOUT_MS:-600000} node ./scripts/wait-cl-ready.mjs
+	BEACON_URLS="http://127.0.0.1:3503" WAIT_CL_TIMEOUT_MS=$${WAIT_CL_TIMEOUT_MS:-1200000} node ./scripts/wait-cl-ready.mjs
 	docker compose -f docker-compose-set3.yml up -d validator-3
 	sleep $${SECONDS_PER_SLOT:-2}
 	docker run --rm \
@@ -420,8 +420,12 @@ downup-all-every:
 	  sleep $$RESTART_INTERVAL_SEC; \
 	  echo "[downup-all-every] Restarting set1..."; \
 	  $(MAKE) downup-set1; \
+	  echo "[downup-all-every] Stabilizing set1..."; \
+	  sleep 60; \
 	  echo "[downup-all-every] Restarting set2..."; \
 	  $(MAKE) downup-set2; \
+	  echo "[downup-all-every] Stabilizing set2..."; \
+	  sleep 60; \
 	  echo "[downup-all-every] Restarting set3..."; \
 	  $(MAKE) downup-set3; \
 	done'
