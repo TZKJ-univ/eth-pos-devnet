@@ -1,8 +1,9 @@
 import { execSync } from "node:child_process";
 import fs from "node:fs";
 import { setTimeout as sleep } from "node:timers/promises";
+import { fileURLToPath } from "node:url";
 
-const ENV_PATH = new URL("../.env", import.meta.url).pathname;
+const ENV_PATH = fileURLToPath(new URL("../.env", import.meta.url));
 
 function getEnodeOnce() {
   // Query geth's enode via IPC inside the container

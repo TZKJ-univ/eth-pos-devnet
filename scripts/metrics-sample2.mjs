@@ -87,18 +87,22 @@ function initCsvFiles() {
     // Finality/進捗に関わるネットワーク状態
     'head_slot', 'current_epoch', 'justified_epoch', 'finalized_epoch', 'finality_gap_slots', 'finality_gap_epochs',
     // 集約的に意味を持つ最小限のバリデータ指標
-    'validators_total', 'activation_queue_len', 'exit_queue_len', 'active_validator_count'
+    'validators_total', 'activation_queue_len', 'exit_queue_len', 'active_validator_count',
+    'participation_rate'
+  ].join(',') + '\n';
+
+  const perfElHeader = [
+    'ts_ms', 'container_name',
+    'txpool_pending', 'p2p_peers', 'block_number',
+    'block_exec_latency_p95',
+    'cpu_seconds_total', 'memory_bytes'
   ].join(',') + '\n';
 
   const perfClHeader = [
     'ts_ms', 'container_name',
     'state_transition_ms', 'head_slot', 'justified_epoch', 'finalized_epoch', 'peer_count',
-    'block_import_time_sum', 'active_validators'
-  ].join(',') + '\n';
-  const perfElHeader = [
-    'ts_ms', 'container_name',
-    'txpool_pending', 'p2p_peers', 'block_number',
-    'block_exec_latency_p95'
+    'block_import_time_sum', 'active_validators',
+    'cpu_seconds_total', 'memory_bytes'
   ].join(',') + '\n';
 
   fs.writeFileSync(EL_CSV, elHeader);
@@ -207,6 +211,26 @@ async function sampleEl(endpoint) {
 
 // sampleCl removed (all metrics moved to perf)
 
+
+
+// New function to fetch participation rate from Prysm metrics if available, or calculate it
+async function getParticipationRate() {
+  // Try to get it from Prometheus if Prysm exposes it
+  // metric: validator_statuses{status="active_ongoing"} is count.
+  // metric: beacon_attestation_participation_ratio is not standard.
+  // We will try to use a heuristic: (justified_epoch_target_balance / active_balance) from standard API?
+  // Standard API: /eth/v1/beacon/states/head/committees is heavy.
+  // Let's try to query Prometheus for 'beacon_attestations_aggregated_total' rate? No.
+
+  // Let's use a simple query for now: 
+  // If we can't get it easily, we return -1.
+  // Actually, let's try to query 'beacon_head_participation' if it exists (some clients have it).
+  const res = await queryPrometheus('beacon_head_participation');
+  if (res.length > 0) return Number(res[0].value[1]);
+  return -1;
+}
+
+// Override sampleNetwork to include participation rate
 async function sampleNetwork() {
   // endpointはfailoverで動的に決定
   const ts_ms = unixMs();
@@ -234,10 +258,14 @@ async function sampleNetwork() {
   const activationQueueLen = (cPendInit >= 0 && cPendQueue >= 0) ? (cPendInit + cPendQueue) : -1;
   const exitQueueLen = cActExit;
   const activeValidatorCount = cActOngo;
+
+  const participationRate = await getParticipationRate();
+
   appendCsvRow(NET_CSV, [
     ts_ms,
     headSlot, curEpoch, justEpoch, finEpoch, finGapSlots, finGapEpochs,
-    total, activationQueueLen, exitQueueLen, activeValidatorCount
+    total, activationQueueLen, exitQueueLen, activeValidatorCount,
+    participationRate
   ]);
 }
 
@@ -275,18 +303,20 @@ async function samplePerfMetrics() {
     queryPrometheus('beacon_finalized_epoch and on(instance) up == 1'),
     queryPrometheus('p2p_peer_count{state="Connected"} and on(instance) up == 1'),
     queryPrometheus('(chain_service_processing_milliseconds_sum or chain_execution{quantile="0.95"}) and on(instance) up == 1'),
-    queryPrometheus('beacon_current_active_validators and on(instance) up == 1')
+    queryPrometheus('beacon_current_active_validators and on(instance) up == 1'),
+    queryPrometheus('rate(process_cpu_seconds_total[1m]) and on(instance) up == 1'),
+    queryPrometheus('process_resident_memory_bytes and on(instance) up == 1')
   ]);
 
   // Aggregate by container
-  const data = {}; // container -> { m1, m2, m3, m4, m5, m6, m7 }
+  const data = {}; // container -> { m1, m2, m3, m4, m5, m6, m7, m8, m9 }
 
   // Initialize with all expected containers and default values
   const expectedContainers = [
     ...Object.values(PROM_INSTANCE_MAP), // geth-1..3, prysm-1..3
   ];
   for (const c of expectedContainers) {
-    data[c] = { m1: MISSING, m2: MISSING, m3: MISSING, m4: MISSING, m5: MISSING, m6: MISSING, m7: MISSING };
+    data[c] = { m1: MISSING, m2: MISSING, m3: MISSING, m4: MISSING, m5: MISSING, m6: MISSING, m7: MISSING, m8: MISSING, m9: MISSING };
   }
 
   // Helper to extract container name from metric labels
@@ -311,13 +341,15 @@ async function samplePerfMetrics() {
   update(res5, 'm5');
   update(res6, 'm6');
   update(res7, 'm7');
+  update(res8, 'm8'); // CPU
+  update(res9, 'm9'); // Memory
 
   // Write rows
   for (const [container, metrics] of Object.entries(data)) {
     if (container.startsWith('prysm')) {
-      appendCsvRow(PERF_CL_CSV, [ts_ms, container, metrics.m1, metrics.m2, metrics.m3, metrics.m4, metrics.m5, metrics.m6, metrics.m7]);
+      appendCsvRow(PERF_CL_CSV, [ts_ms, container, metrics.m1, metrics.m2, metrics.m3, metrics.m4, metrics.m5, metrics.m6, metrics.m7, metrics.m8, metrics.m9]);
     } else if (container.startsWith('geth')) {
-      appendCsvRow(PERF_EL_CSV, [ts_ms, container, metrics.m1, metrics.m2, metrics.m3, metrics.m6]);
+      appendCsvRow(PERF_EL_CSV, [ts_ms, container, metrics.m1, metrics.m2, metrics.m3, metrics.m6, metrics.m8, metrics.m9]);
     }
   }
 }

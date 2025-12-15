@@ -1,13 +1,14 @@
 #!/usr/bin/env node
 import { execSync } from 'node:child_process';
 import fs from 'node:fs';
+import { fileURLToPath } from 'node:url';
 
-const ENV_PATH = new URL('../.env', import.meta.url).pathname;
+const ENV_PATH = fileURLToPath(new URL('../.env', import.meta.url));
 
 const EL_SERVICES = [
-  { name: 'geth',    dataDir: './data/geth'   },
-  { name: 'geth-2',  dataDir: './data/geth-2' },
-  { name: 'geth-3',  dataDir: './data/geth-3' },
+  { name: 'geth', dataDir: './data/geth' },
+  { name: 'geth-2', dataDir: './data/geth-2' },
+  { name: 'geth-3', dataDir: './data/geth-3' },
 ];
 
 function getContainerId(service) {
@@ -62,7 +63,7 @@ async function main() {
     // geth accepts comma-separated bootnodes list
     upsertEnvVar(ENV_PATH, 'EL_BOOTNODE', list.join(','));
     // also write numbered vars
-    list.forEach((v, i) => upsertEnvVar(ENV_PATH, `EL_BOOTNODE_${i+1}`, v));
+    list.forEach((v, i) => upsertEnvVar(ENV_PATH, `EL_BOOTNODE_${i + 1}`, v));
   }
   // Write static-nodes.json for persistence and add peers live
   for (const s of EL_SERVICES) {

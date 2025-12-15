@@ -1,9 +1,10 @@
 import fs from "node:fs";
 import { execSync } from "node:child_process";
 import { setTimeout as sleep } from "node:timers/promises";
+import { fileURLToPath } from "node:url";
 
 const BEACON_URL = process.env.BEACON_URL || "http://127.0.0.1:3500";
-const ENV_PATH = new URL("../.env", import.meta.url).pathname;
+const ENV_PATH = fileURLToPath(new URL("../.env", import.meta.url));
 
 async function fetchIdentity() {
   const res = await fetch(`${BEACON_URL}/eth/v1/node/identity`);
