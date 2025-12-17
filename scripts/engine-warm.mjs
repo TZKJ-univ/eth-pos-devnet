@@ -15,7 +15,7 @@ const ENGINE = {
 };
 
 function base64url(buf) {
-  return Buffer.from(buf).toString('base64').replace(/=/g,'').replace(/\+/g,'-').replace(/\//g,'_');
+  return Buffer.from(buf).toString('base64').replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
 }
 
 function makeJwt(secretBuf) {
@@ -23,26 +23,26 @@ function makeJwt(secretBuf) {
   let s = raw.toString('utf8').trim();
   if (s.startsWith('0x') || s.startsWith('0X')) s = s.slice(2);
   let key;
-  if (/^[0-9a-fA-F]{64}$/.test(s)) { try { key = Buffer.from(s,'hex'); } catch { key = raw; } } else { key = raw; }
-  const header = base64url(JSON.stringify({ alg:'HS256', typ:'JWT' }));
-  const payload = base64url(JSON.stringify({ iat: Math.floor(Date.now()/1000) }));
+  if (/^[0-9a-fA-F]{64}$/.test(s)) { try { key = Buffer.from(s, 'hex'); } catch { key = raw; } } else { key = raw; }
+  const header = base64url(JSON.stringify({ alg: 'HS256', typ: 'JWT' }));
+  const payload = base64url(JSON.stringify({ iat: Math.floor(Date.now() / 1000) }));
   const toSign = `${header}.${payload}`;
   const sig = crypto.createHmac('sha256', key).update(toSign).digest();
   return `${toSign}.${base64url(sig)}`;
 }
 
 async function rpc(url, jwt, method, params) {
-  const res = await fetch(url, { method:'POST', headers:{ 'content-type':'application/json', 'authorization':`Bearer ${jwt}` }, body: JSON.stringify({ jsonrpc:'2.0', id:1, method, params }) });
+  const res = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json', 'authorization': `Bearer ${jwt}` }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }) });
   if (!res.ok) throw new Error(`${method} HTTP ${res.status}`);
   const j = await res.json(); if (j.error) throw new Error(`${method} error: ${j.error.message || j.error.code}`); return j.result;
 }
 async function httpJson(url, body) {
-  const res = await fetch(url, { method:'POST', headers:{ 'content-type':'application/json' }, body });
+  const res = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   const j = await res.json(); return j;
 }
 async function ethRpc(url, method, params) {
-  const res = await fetch(url, { method:'POST', headers:{ 'content-type':'application/json' }, body: JSON.stringify({ jsonrpc:'2.0', id:1, method, params }) });
+  const res = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }) });
   if (!res.ok) throw new Error(`${method} HTTP ${res.status}`);
   const j = await res.json(); if (j.error) throw new Error(`${method} error: ${j.error.message || j.error.code}`); return j.result;
 }
@@ -79,14 +79,14 @@ async function main() {
     try {
       const safe = await ethRpc(ENGINE.rpcUrl, 'eth_getBlockByNumber', ['safe', false]);
       if (safe && safe.hash) safeHash = safe.hash;
-    } catch (_) {}
+    } catch (_) { }
     try {
       const finalized = await ethRpc(ENGINE.rpcUrl, 'eth_getBlockByNumber', ['finalized', false]);
       if (finalized && finalized.hash) finalizedHash = finalized.hash;
-    } catch (_) {}
+    } catch (_) { }
 
     // compute next timestamp
-    let nextTs = Math.floor(Date.now()/1000);
+    let nextTs = Math.floor(Date.now() / 1000);
     let parentBeaconBlockRoot = null;
     if (BEACON_URL && ALIGN_BEACON) {
       try {
@@ -97,7 +97,7 @@ async function main() {
         const secondsPerSlot = parseInt(sj?.data?.SECONDS_PER_SLOT || '3', 10);
         parentBeaconBlockRoot = hj?.data?.root || null;
         if (genesisTime > 0 && secondsPerSlot > 0) {
-          const now = Math.floor(Date.now()/1000);
+          const now = Math.floor(Date.now() / 1000);
           const curSlot = Math.max(0, Math.floor((now - genesisTime) / secondsPerSlot));
           const parentSlot = Math.max(0, Math.floor((parentTs - genesisTime) / secondsPerSlot));
           const nextSlot = Math.max(curSlot + 1, parentSlot + 1);
@@ -120,7 +120,7 @@ async function main() {
       }
     }
 
-  const state = { headBlockHash: headHash, safeBlockHash: safeHash, finalizedBlockHash: finalizedHash };
+    const state = { headBlockHash: headHash, safeBlockHash: safeHash, finalizedBlockHash: finalizedHash };
     // Fetch real prevRandao from beacon head block if available
     let prevRandao = rand32(); // fallback
     if (BEACON_URL) {
@@ -153,11 +153,11 @@ async function main() {
       }
     }
 
-  // ensure timestamp monotonic while keeping slot alignment preference
-  const nowTs = Math.floor(Date.now()/1000);
-  let ts = nextTs;
-  if (ts <= parentTs) ts = parentTs + 1; // safety
-  if (ts < nowTs) ts = nowTs; // do not go into the past
+    // ensure timestamp monotonic while keeping slot alignment preference
+    const nowTs = Math.floor(Date.now() / 1000);
+    let ts = nextTs;
+    if (ts <= parentTs) ts = parentTs + 1; // safety
+    if (ts < nowTs) ts = nowTs; // do not go into the past
     attrsV2.timestamp = toHex(ts);
     if (attrsV3) attrsV3.timestamp = attrsV2.timestamp;
 
@@ -167,7 +167,7 @@ async function main() {
         const status = r?.payloadStatus?.status || r?.status || 'OK';
         const pid = r?.payloadId || null;
         const validationError = r?.payloadStatus?.validationError || null;
-        console.log('engine-warm: attempt', attempt, v.method, 'status=', status, 'payloadId=', pid || 'null', 'timestamp=', attrsV2.timestamp, validationError ? ('validationError='+validationError) : '');
+        console.log('engine-warm: attempt', attempt, v.method, 'status=', status, 'payloadId=', pid || 'null', 'timestamp=', attrsV2.timestamp, validationError ? ('validationError=' + validationError) : '');
         if (pid && VERIFY) {
           // Try getPayload to ensure it's materialized
           try {
@@ -196,6 +196,17 @@ async function main() {
         }
       } catch (e) {
         console.error('engine-warm:', v.method, 'attempt', attempt, 'failed:', e.message);
+        // Reload JWT on 401 Unauthorized
+        if (/HTTP 401/i.test(e.message)) {
+          console.log('engine-warm: HTTP 401 detected, reloading jwtsecret...');
+          try {
+            secret = await fs.readFile(ENGINE.jwt);
+            token = makeJwt(secret);
+            console.log('engine-warm: jwtsecret reloaded successfully');
+          } catch (err) {
+            console.error('engine-warm: failed to reload jwtsecret:', err.message);
+          }
+        }
         if (v.method === 'engine_forkchoiceUpdatedV2' && /Unsupported fork/i.test(e.message)) {
           disableV2 = true; // don't keep trying V2
         }

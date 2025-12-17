@@ -430,9 +430,5 @@ downup-all-every:
 	  $(MAKE) downup-set3; \
 	done'
 
-# --- Configuration & Internal Variables ---
-
-
-
 HELPER_VOL_ARGS := -v $(CURDIR)/data:/data:ro
 HELPER_VOL_ARGS += -v devnet_geth-data-1:/data/geth:ro -v devnet_geth-data-2:/data/geth-2:ro -v devnet_geth-data-3:/data/geth-3:ro
