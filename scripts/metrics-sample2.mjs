@@ -50,33 +50,45 @@ const PROM_INSTANCE_MAP = {
   'host.docker.internal:6062': 'geth-3',
 };
 
-// 分割出力用のCSVファイル（EL/CL/Validator/Performance）
+// 分割出力用のCSVファイル（EL/CL/Validator/Performance/LatencyTx）
 let EL_CSV = '';
-// let CL_CSV = ''; // Removed
+let CL_CSV = '';
 let VAL_CSV = '';
 let NET_CSV = '';
-let PERF_CL_CSV = '';
-let PERF_EL_CSV = '';
+// let PERF_CL_CSV = ''; // Removed
+// let PERF_EL_CSV = ''; // Removed
+let LATENCY_TX_CSV = '';
 
 function tsBase() { return new Date().toISOString().replace(/[:.]/g, '-'); }
 function initCsvFiles() {
-  const dir = './metrics';
-  fs.mkdirSync(dir, { recursive: true });
   const base = tsBase();
-  EL_CSV = path.join(dir, `el-${base}.csv`);
-  // CL_CSV = path.join(dir, `cl-${base}.csv`); // Removed
-  VAL_CSV = path.join(dir, `validator-${base}.csv`);
-  NET_CSV = path.join(dir, `net-${base}.csv`);
-  PERF_CL_CSV = path.join(dir, `perf-cl-${base}.csv`);
-  PERF_EL_CSV = path.join(dir, `perf-el-${base}.csv`);
+  const dir = path.join('./metrics', base);
+  fs.mkdirSync(dir, { recursive: true });
+
+  EL_CSV = path.join(dir, 'el.csv');
+  CL_CSV = path.join(dir, 'cl.csv');
+  VAL_CSV = path.join(dir, 'validator.csv');
+  NET_CSV = path.join(dir, 'net.csv');
+  // PERF_CL_CSV = path.join(dir, 'perf-cl.csv'); // Removed
+  // PERF_EL_CSV = path.join(dir, 'perf-el.csv'); // Removed
+  LATENCY_TX_CSV = path.join(dir, 'latency-tx.csv');
 
   const elHeader = [
     // 動的指標のみ（静的/布尔は除外）
     'ts_ms', 'container_name',
     'basefee_wei', 'gasprice_wei', 'block_gas_used', 'block_gas_limit',
-    'block_tx_count'
+    // Perf metrics merged
+    'txpool_pending', 'p2p_peers', 'block_number', 'block_exec_latency_p95', 'cpu_seconds_total', 'memory_bytes'
   ].join(',') + '\n';
-  // CL CSV is deprecated/removed
+
+  const clHeader = [
+    'ts_ms', 'container_name',
+    // Perf metrics merged
+    'state_transition_ms', 'head_slot', 'justified_epoch', 'finalized_epoch', 'peer_count',
+    'block_import_time_sum', 'active_validators',
+    'cpu_seconds_total', 'memory_bytes'
+  ].join(',') + '\n';
+
   const valHeader = [
     // boolは出力しない
     'ts_ms', 'source_container', 'avg_effective_balance_gwei'
@@ -91,39 +103,39 @@ function initCsvFiles() {
     'participation_rate'
   ].join(',') + '\n';
 
-  const perfElHeader = [
-    'ts_ms', 'container_name',
-    'txpool_pending', 'p2p_peers', 'block_number',
-    'block_exec_latency_p95',
-    'cpu_seconds_total', 'memory_bytes'
-  ].join(',') + '\n';
+  // Perf CSVs removed
 
-  const perfClHeader = [
-    'ts_ms', 'container_name',
-    'state_transition_ms', 'head_slot', 'justified_epoch', 'finalized_epoch', 'peer_count',
-    'block_import_time_sum', 'active_validators',
-    'cpu_seconds_total', 'memory_bytes'
+  const latencyTxHeader = [
+    'ts_ms', 'set_name',
+    'el_latency', 'cl_latency',
+    'tx_pool_pending', 'block_tx_count'
   ].join(',') + '\n';
 
   fs.writeFileSync(EL_CSV, elHeader);
-  // fs.writeFileSync(CL_CSV, clHeader); // Removed
+  fs.writeFileSync(CL_CSV, clHeader);
   fs.writeFileSync(VAL_CSV, valHeader);
   fs.writeFileSync(NET_CSV, netHeader);
-  fs.writeFileSync(PERF_CL_CSV, perfClHeader);
-  fs.writeFileSync(PERF_EL_CSV, perfElHeader);
+  // fs.writeFileSync(PERF_CL_CSV, perfClHeader); // Removed
+  // fs.writeFileSync(PERF_EL_CSV, perfElHeader); // Removed
+  fs.writeFileSync(LATENCY_TX_CSV, latencyTxHeader);
 }
 
 function unixMs() { return Date.now(); }
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
+// High-resolution timestamp
+function nowHigh() {
+  return performance.now();
+}
+
 async function jsonRpc(url, method, params = []) {
-  const t0 = Date.now();
+  const t0 = nowHigh();
   const res = await fetch(url, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params })
   });
-  const t1 = Date.now();
+  const t1 = nowHigh();
   const latency = t1 - t0;
   if (!res.ok) throw Object.assign(new Error(`${method} HTTP ${res.status}`), { latency });
   const json = await res.json();
@@ -132,9 +144,9 @@ async function jsonRpc(url, method, params = []) {
 }
 
 async function beaconGet(url, path) {
-  const t0 = Date.now();
+  const t0 = nowHigh();
   const res = await fetch(url.replace(/\/$/, '') + path, { headers: { 'accept': 'application/json' } });
-  const t1 = Date.now();
+  const t1 = nowHigh();
   const latency = t1 - t0;
   if (!res.ok) throw Object.assign(new Error(`${path} HTTP ${res.status}`), { latency });
   const json = await res.json();
@@ -153,9 +165,9 @@ async function beaconGetWithFailover(path) {
 }
 
 async function beaconGetRaw(url, path) {
-  const t0 = Date.now();
+  const t0 = nowHigh();
   const res = await fetch(url.replace(/\/$/, '') + path);
-  const t1 = Date.now();
+  const t1 = nowHigh();
   const latency = t1 - t0;
   return { status: res.status, latency };
 }
@@ -186,30 +198,48 @@ function hexToNum(h) { try { return Number(BigInt(h)); } catch { return null; } 
 
 const MISSING = -1;
 
-async function sampleEl(endpoint) {
+async function sampleEl(endpoint, perfData) {
   const ts_ms = unixMs();
   const endpoint_idx = EL_INDEX[endpoint] ?? MISSING;
   const containerName = elContainerName(endpoint_idx);
   // el_latency removed
   let basefee = MISSING, gasprice = MISSING, gasUsed = MISSING, gasLimit = MISSING;
   let errorFlag = 0;
-  let blockTxCount = MISSING;
+  // blockTxCount removed (moved to latency-tx)
   // syncing (bool) は出力対象外のため取得省略
   try { const { result: gp } = await jsonRpc(endpoint, 'eth_gasPrice', []); gasprice = hexToNum(gp) ?? MISSING; } catch { errorFlag = 1; }
   // blockNumber removed (moved to perf)
-  try { const { result: bn, latency: l1 } = await jsonRpc(endpoint, 'eth_blockNumber', []); /* el_latency = l1; blockNumber = hexToNum(bn) ?? MISSING; */ } catch { errorFlag = 1; }
+  // try { const { result: bn, latency: l1 } = await jsonRpc(endpoint, 'eth_blockNumber', []); /* el_latency = l1; blockNumber = hexToNum(bn) ?? MISSING; */ } catch { errorFlag = 1; }
   try { const { result: blk } = await jsonRpc(endpoint, 'eth_getBlockByNumber', ['latest', false]); if (blk) { basefee = hexToNum(blk.baseFeePerGas) ?? MISSING; gasUsed = hexToNum(blk.gasUsed) ?? MISSING; gasLimit = hexToNum(blk.gasLimit) ?? MISSING; } } catch { errorFlag = 1; }
-  try { const { result: txc } = await jsonRpc(endpoint, 'eth_getBlockTransactionCountByNumber', ['latest']); blockTxCount = hexToNum(txc) ?? MISSING; } catch { errorFlag = 1; }
+  // try { const { result: txc } = await jsonRpc(endpoint, 'eth_getBlockTransactionCountByNumber', ['latest']); blockTxCount = hexToNum(txc) ?? MISSING; } catch { errorFlag = 1; }
+
+  // Merge Perf Data
+  const pm = (perfData && perfData[containerName]) || { m1: MISSING, m2: MISSING, m3: MISSING, m6: MISSING, m8: MISSING, m9: MISSING };
+  // m1: txpool_pending, m2: p2p_peers, m3: block_number, m6: block_exec_latency_p95, m8: cpu, m9: mem
 
   appendCsvRow(EL_CSV, [
     ts_ms, containerName,
     basefee, gasprice, gasUsed, gasLimit,
-    blockTxCount
+    pm.m1, pm.m2, pm.m3, pm.m6, pm.m8, pm.m9
   ]);
-  return { ts_ms, containerName, basefee, gasprice, gasUsed, gasLimit, blockTxCount };
+  return { ts_ms, containerName, basefee, gasprice, gasUsed, gasLimit };
 }
 
-// sampleCl removed (all metrics moved to perf)
+// Write CL metrics (mostly perf data)
+function writeClMetrics(perfData) {
+  const ts_ms = unixMs();
+  // Iterate expected CL containers (prysm-1..3)
+  for (const c of Object.values(PROM_INSTANCE_MAP)) {
+    if (!c.startsWith('prysm')) continue;
+    const pm = (perfData && perfData[c]) || { m1: MISSING, m2: MISSING, m3: MISSING, m4: MISSING, m5: MISSING, m6: MISSING, m7: MISSING, m8: MISSING, m9: MISSING };
+    // m1: state_transition_ms, m2: head_slot, m3: justified_epoch, m4: finalized_epoch, m5: peer_count
+    // m6: block_import_time_sum, m7: active_validators, m8: cpu, m9: mem
+    appendCsvRow(CL_CSV, [
+      ts_ms, c,
+      pm.m1, pm.m2, pm.m3, pm.m4, pm.m5, pm.m6, pm.m7, pm.m8, pm.m9
+    ]);
+  }
+}
 
 
 
@@ -286,18 +316,66 @@ async function sampleValidators() {
   appendCsvRow(VAL_CSV, [ts_ms, source, avgBal]);
 }
 
+// New function: sampleLatencyTx
+// el_latency, cl_latency, tx_pool_pending, block_tx_count for set1, set2, set3
+// Latency is now fetched from Prometheus (internal processing time) to avoid external network influence.
+async function sampleLatencyTx(perfData) {
+  const ts_ms = unixMs();
+
+  // Iterate over sets (0, 1, 2)
+  for (let i = 0; i < 3; i++) {
+    const setName = `set${i + 1}`;
+    const elContainer = elContainerName(i); // geth-1
+    const clContainer = clContainerName(i); // prysm-1
+    const elUrl = EL_ENDPOINTS[i];
+
+    // EL Latency: use 'block_exec_latency_p95' (m6 in perfData for Geth)
+    // Geth 'chain_execution' is likely Nanoseconds. Convert to ms.
+    let elLatency = MISSING;
+    let txPoolPending = MISSING;
+    if (perfData && perfData[elContainer]) {
+      const val = perfData[elContainer].m6;
+      if (val !== MISSING) {
+        elLatency = val / 1e6; // ns -> ms
+      }
+      txPoolPending = perfData[elContainer].m1; // m1 is txpool_pending for Geth
+    }
+
+    // CL Latency: use 'state_transition_ms' (m1 in perfData for Prysm)
+    // We updated m1 to be Avg Rate (rate(sum)/rate(count)) in ms.
+    let clLatency = MISSING;
+    if (perfData && perfData[clContainer]) {
+      clLatency = perfData[clContainer].m1;
+    }
+
+    let blockTxCount = MISSING;
+
+    // 1. Block Tx Count (still need RPC for this as it's specific)
+    if (elUrl) {
+      try {
+        const { result: txc } = await jsonRpc(elUrl, 'eth_getBlockTransactionCountByNumber', ['latest']);
+        blockTxCount = hexToNum(txc) ?? MISSING;
+      } catch (e) {
+        // failed
+      }
+    }
+
+    appendCsvRow(LATENCY_TX_CSV, [
+      ts_ms, setName,
+      elLatency, clLatency,
+      txPoolPending, blockTxCount
+    ]);
+  }
+}
+
 async function samplePerfMetrics() {
   const ts_ms = unixMs();
   // Query Prometheus
-  // 1. Metric 1: state_transition_processing_milliseconds_sum (Prysm) OR txpool_pending (Geth)
-  // 2. Metric 2: beacon_head_slot (Prysm) OR p2p_peers (Geth)
-  // 3. Metric 3: beacon_current_justified_epoch (Prysm) OR chain_head_block (Geth)
-  // 4. Metric 4: beacon_finalized_epoch (Prysm)
-  // 5. Metric 5: p2p_peer_count (Prysm)
-  // 6. Metric 6: chain_service_processing_milliseconds_sum (Prysm) OR chain_execution{quantile="0.95"} (Geth)
-  // 7. Metric 7: beacon_current_active_validators (Prysm)
+  // 1. Metric 1: state_transition (Avg ms) for Prysm OR txpool_pending (Geth)
+  //    Prysm: rate(sum)/rate(count) -> Avg per block
+  //    Geth: txpool_pending (Gauge)
   const [res1, res2, res3, res4, res5, res6, res7, res8, res9] = await Promise.all([
-    queryPrometheus('(state_transition_processing_milliseconds_sum or txpool_pending) and on(instance) up == 1'),
+    queryPrometheus('(rate(state_transition_processing_milliseconds_sum[1m])/rate(state_transition_processing_milliseconds_count[1m]) or txpool_pending) and on(instance) up == 1'),
     queryPrometheus('(beacon_head_slot or p2p_peers) and on(instance) up == 1'),
     queryPrometheus('(beacon_current_justified_epoch or chain_head_block) and on(instance) up == 1'),
     queryPrometheus('beacon_finalized_epoch and on(instance) up == 1'),
@@ -344,14 +422,15 @@ async function samplePerfMetrics() {
   update(res8, 'm8'); // CPU
   update(res9, 'm9'); // Memory
 
-  // Write rows
-  for (const [container, metrics] of Object.entries(data)) {
-    if (container.startsWith('prysm')) {
-      appendCsvRow(PERF_CL_CSV, [ts_ms, container, metrics.m1, metrics.m2, metrics.m3, metrics.m4, metrics.m5, metrics.m6, metrics.m7, metrics.m8, metrics.m9]);
-    } else if (container.startsWith('geth')) {
-      appendCsvRow(PERF_EL_CSV, [ts_ms, container, metrics.m1, metrics.m2, metrics.m3, metrics.m6, metrics.m8, metrics.m9]);
-    }
-  }
+  // Return data but do NOT write rows to file (moved to merged rows in sampleEl/writeClMetrics)
+  // for (const [container, metrics] of Object.entries(data)) {
+  //   if (container.startsWith('prysm')) {
+  //     appendCsvRow(PERF_CL_CSV, [ts_ms, container, metrics.m1, metrics.m2, metrics.m3, metrics.m4, metrics.m5, metrics.m6, metrics.m7, metrics.m8, metrics.m9]);
+  //   } else if (container.startsWith('geth')) {
+  //     appendCsvRow(PERF_EL_CSV, [ts_ms, container, metrics.m1, metrics.m2, metrics.m3, metrics.m6, metrics.m8, metrics.m9]);
+  //   }
+  // }
+  return data;
 }
 
 async function main() {
@@ -364,12 +443,16 @@ async function main() {
   // 固定レート(既定1秒)でサンプリング: 処理時間を含めて厳密に1Hzを目指す
   let nextAt = Date.now();
   while (!stop && Date.now() < endAt) {
+    const perfData = await samplePerfMetrics(); // Fetch perf first
+    writeClMetrics(perfData);
+
     const results = await Promise.allSettled([
-      ...EL_ENDPOINTS.map(e => sampleEl(e)),
+      ...EL_ENDPOINTS.map(e => sampleEl(e, perfData)),
       // ...CL_ENDPOINTS.map(b => sampleCl(b)), // Removed
       sampleValidators(),
       sampleNetwork(),
-      samplePerfMetrics(),
+      // samplePerfMetrics(), // Moved up
+      sampleLatencyTx(perfData), // Added
     ]);
 
     // Check for errors

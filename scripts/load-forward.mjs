@@ -73,12 +73,22 @@ function ensureForwarderReadyIfNeeded(directTransfer) {
 }
 function resolveContractAddress() { return undefined; }
 
-// Provider factory with graceful fallback
-function createProvider(url) {
-  if (url.startsWith('ws')) {
-    return new WebSocketProvider(url);
+const providerCache = new Map();
+
+// Provider factory with caching (Singleton per URL)
+function getSharedProvider(url) {
+  if (providerCache.has(url)) {
+    return providerCache.get(url);
   }
-  return new JsonRpcProvider(url);
+  let p;
+  if (url.startsWith('ws')) {
+    p = new WebSocketProvider(url);
+  } else {
+    // StaticJsonRpcProvider-like behavior in v6 is default for JsonRpcProvider
+    p = new JsonRpcProvider(url, undefined, { staticNetwork: true });
+  }
+  providerCache.set(url, p);
+  return p;
 }
 
 function pickHttpUrl() {
@@ -86,7 +96,7 @@ function pickHttpUrl() {
   return http || 'http://127.0.0.1:8545';
 }
 
-// Custom receipt polling using fetch to avoid ethers provider leaks
+// Custom receipt polling using shared provider
 async function waitReceipt(txHash) {
   const start = Date.now();
   const timeout = 60000; // 60s timeout for receipt
@@ -98,17 +108,9 @@ async function waitReceipt(txHash) {
     urlIdx++;
 
     try {
-      const res = await fetch(url, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'eth_getTransactionReceipt', params: [txHash] })
-      });
-      if (res.ok) {
-        const json = await res.json();
-        if (json.result) {
-          return json.result; // Receipt found
-        }
-      }
+      const provider = getSharedProvider(url);
+      const receipt = await provider.send('eth_getTransactionReceipt', [txHash]);
+      if (receipt) return receipt;
     } catch (e) {
       // Ignore network errors during polling, just retry
     }
@@ -203,7 +205,7 @@ const DIRECT_TRANSFER = process.env.DIRECT_TRANSFER === '1' || process.env.DIREC
 async function runWorker(i, endAt, stats, _unused, bucket) {
   let urlIdx = 0;
   let url = urlForWorker(i);
-  let provider = createProvider(url);
+  let provider = getSharedProvider(url);
   const wallet = new Wallet(workerKey(i), provider);
   const value = parseEther(VALUE_ETH);
   const gasLimit = BigInt(DIRECT_TRANSFER ? 21000 : GAS_LIMIT);
@@ -258,10 +260,11 @@ async function runWorker(i, endAt, stats, _unused, bucket) {
           await sleep(50);
         }
         if (/tx-send-timeout|connection|ECONNRESET|socket|timeout|closed/i.test(msg)) {
-          try { await provider.destroy?.(); } catch { }
+          // Do NOT destroy shared provider here, just rotate URL for this worker
           urlIdx = (urlIdx + 1) % RPC_URLS.length;
           url = RPC_URLS[urlIdx];
-          provider = createProvider(url);
+          provider = getSharedProvider(url);
+          // Re-create wallet attached to new provider
           const rebound = new Wallet(wallet.privateKey, provider);
           try {
             nonce = await provider.getTransactionCount(rebound.address, 'pending');
@@ -294,8 +297,7 @@ async function runWorker(i, endAt, stats, _unused, bucket) {
   }
   // 終了時、保留分を待つ（短いグレース期間に委ねてもOK）
   await Promise.allSettled(pending);
-  // cleanup provider so websocket doesn't keep process alive
-  try { await provider.destroy?.(); } catch { }
+  // Shared provider, do NOT destroy here
 }
 
 function sleep(ms) { return new Promise(res => setTimeout(res, ms)); }
@@ -307,7 +309,7 @@ async function main() {
   }
   // Prepare forwarder dependency only if needed
   ensureForwarderReadyIfNeeded(DIRECT_TRANSFER);
-  const primary = createProvider(RPC_URLS[0]);
+  const primary = getSharedProvider(RPC_URLS[0]);
   const net = await primary.getNetwork();
   console.log(`chainId=${net.chainId} block=${await primary.getBlockNumber()}`);
 
@@ -339,7 +341,12 @@ async function main() {
     await sleep(RECEIPT_DRAIN_MS);
   }
   clearTimeout(watchdog);
-  try { await primary.destroy?.(); } catch { }
+
+  // Cleanup all shared providers
+  for (const p of providerCache.values()) {
+    try { await p.destroy?.(); } catch { }
+  }
+
   console.log(`done: sent=${stats.sent} succ=${stats.succ} fail=${stats.fail}`);
   // Explicit exit to avoid lingering websockets
   process.exit(0);
