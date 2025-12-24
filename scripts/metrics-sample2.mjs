@@ -108,7 +108,8 @@ function initCsvFiles() {
   const latencyTxHeader = [
     'ts_ms', 'set_name',
     'el_latency', 'cl_latency',
-    'tx_pool_pending', 'block_tx_count'
+    'tx_pool_pending', 'block_tx_count',
+    'missed_slots'
   ].join(',') + '\n';
 
   fs.writeFileSync(EL_CSV, elHeader);
@@ -341,11 +342,17 @@ async function sampleLatencyTx(perfData) {
       txPoolPending = perfData[elContainer].m1; // m1 is txpool_pending for Geth
     }
 
+    // CL Latency & Missed Slots
     // CL Latency: use 'state_transition_ms' (m1 in perfData for Prysm)
-    // We updated m1 to be Avg Rate (rate(sum)/rate(count)) in ms.
     let clLatency = MISSING;
+    let missedSlots = MISSING;
     if (perfData && perfData[clContainer]) {
       clLatency = perfData[clContainer].m1;
+      missedSlots = perfData[clContainer].m10;
+      // If metric is missing but node is up (m2 has value), assume 0 missed slots
+      if (missedSlots === MISSING && perfData[clContainer].m2 !== MISSING) {
+        missedSlots = 0;
+      }
     }
 
     let blockTxCount = MISSING;
@@ -363,7 +370,8 @@ async function sampleLatencyTx(perfData) {
     appendCsvRow(LATENCY_TX_CSV, [
       ts_ms, setName,
       elLatency, clLatency,
-      txPoolPending, blockTxCount
+      txPoolPending, blockTxCount,
+      missedSlots
     ]);
   }
 }
@@ -371,10 +379,10 @@ async function sampleLatencyTx(perfData) {
 async function samplePerfMetrics() {
   const ts_ms = unixMs();
   // Query Prometheus
-  // 1. Metric 1: state_transition (Avg ms) for Prysm OR txpool_pending (Geth)
-  //    Prysm: rate(sum)/rate(count) -> Avg per block
-  //    Geth: txpool_pending (Gauge)
-  const [res1, res2, res3, res4, res5, res6, res7, res8, res9] = await Promise.all([
+  // 1. m1: state_transition (Prysm) / txpool (Geth)
+  // ...
+  // 10. m10: missed_slots (Prysm) - beacon_slots_missed_total
+  const [res1, res2, res3, res4, res5, res6, res7, res8, res9, res10] = await Promise.all([
     queryPrometheus('(rate(state_transition_processing_milliseconds_sum[1m])/rate(state_transition_processing_milliseconds_count[1m]) or txpool_pending) and on(instance) up == 1'),
     queryPrometheus('(beacon_head_slot or p2p_peers) and on(instance) up == 1'),
     queryPrometheus('(beacon_current_justified_epoch or chain_head_block) and on(instance) up == 1'),
@@ -383,18 +391,19 @@ async function samplePerfMetrics() {
     queryPrometheus('(chain_service_processing_milliseconds_sum or chain_execution{quantile="0.95"}) and on(instance) up == 1'),
     queryPrometheus('beacon_current_active_validators and on(instance) up == 1'),
     queryPrometheus('rate(process_cpu_seconds_total[1m]) and on(instance) up == 1'),
-    queryPrometheus('process_resident_memory_bytes and on(instance) up == 1')
+    queryPrometheus('process_resident_memory_bytes and on(instance) up == 1'),
+    queryPrometheus('beacon_slots_missed_total and on(instance) up == 1')
   ]);
 
   // Aggregate by container
-  const data = {}; // container -> { m1, m2, m3, m4, m5, m6, m7, m8, m9 }
+  const data = {}; // container -> { m1..m10 }
 
   // Initialize with all expected containers and default values
   const expectedContainers = [
     ...Object.values(PROM_INSTANCE_MAP), // geth-1..3, prysm-1..3
   ];
   for (const c of expectedContainers) {
-    data[c] = { m1: MISSING, m2: MISSING, m3: MISSING, m4: MISSING, m5: MISSING, m6: MISSING, m7: MISSING, m8: MISSING, m9: MISSING };
+    data[c] = { m1: MISSING, m2: MISSING, m3: MISSING, m4: MISSING, m5: MISSING, m6: MISSING, m7: MISSING, m8: MISSING, m9: MISSING, m10: MISSING };
   }
 
   // Helper to extract container name from metric labels
@@ -421,6 +430,7 @@ async function samplePerfMetrics() {
   update(res7, 'm7');
   update(res8, 'm8'); // CPU
   update(res9, 'm9'); // Memory
+  update(res10, 'm10'); // Missed Slots
 
   // Return data but do NOT write rows to file (moved to merged rows in sampleEl/writeClMetrics)
   // for (const [container, metrics] of Object.entries(data)) {
