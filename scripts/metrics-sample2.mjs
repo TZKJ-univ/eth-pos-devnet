@@ -296,7 +296,7 @@ async function samplePerfMetrics() {
   // 5. Metric 5: p2p_peer_count (Prysm)
   // 6. Metric 6: chain_service_processing_milliseconds_sum (Prysm) OR chain_execution{quantile="0.95"} (Geth)
   // 7. Metric 7: beacon_current_active_validators (Prysm)
-  const [res1, res2, res3, res4, res5, res6, res7] = await Promise.all([
+  const [res1, res2, res3, res4, res5, res6, res7, res8, res9] = await Promise.all([
     queryPrometheus('(state_transition_processing_milliseconds_sum or txpool_pending) and on(instance) up == 1'),
     queryPrometheus('(beacon_head_slot or p2p_peers) and on(instance) up == 1'),
     queryPrometheus('(beacon_current_justified_epoch or chain_head_block) and on(instance) up == 1'),
@@ -364,13 +364,20 @@ async function main() {
   // 固定レート(既定1秒)でサンプリング: 処理時間を含めて厳密に1Hzを目指す
   let nextAt = Date.now();
   while (!stop && Date.now() < endAt) {
-    await Promise.allSettled([
+    const results = await Promise.allSettled([
       ...EL_ENDPOINTS.map(e => sampleEl(e)),
       // ...CL_ENDPOINTS.map(b => sampleCl(b)), // Removed
       sampleValidators(),
       sampleNetwork(),
       samplePerfMetrics(),
     ]);
+
+    // Check for errors
+    for (const res of results) {
+      if (res.status === 'rejected') {
+        console.error('metrics-sample2 error:', res.reason);
+      }
+    }
     nextAt += INTERVAL_MS; // 次のターゲット時刻
     const now = Date.now();
     const delay = Math.max(0, nextAt - now);
