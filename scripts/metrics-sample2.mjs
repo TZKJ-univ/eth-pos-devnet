@@ -21,19 +21,22 @@ const CL_INDEX = Object.fromEntries(CL_ENDPOINTS.map((e, i) => [e, i]));
 const INTERVAL_MS = Number(process.env.INTERVAL_MS || 1000);
 const DURATION_SEC = Number(process.env.DURATION_SEC || 0);
 
-// slots per epoch は config/config.yml から読む（なければ6）
-function readSlotsPerEpoch() {
+// config/config.yml から値を読むヘルパー
+function readConfigValue(key, defFunc) {
   try {
     const cfgPath = path.join(process.cwd(), 'config', 'config.yml');
     if (fs.existsSync(cfgPath)) {
       const txt = fs.readFileSync(cfgPath, 'utf8');
-      const m = txt.match(/SLOTS_PER_EPOCH\s*:\s*(\d+)/i);
+      const re = new RegExp(`${key}\\s*:\\s*(\\d+)`, 'i');
+      const m = txt.match(re);
       if (m) return Number(m[1]);
     }
   } catch { }
-  return 6;
+  return defFunc ? defFunc() : 0;
 }
-const SLOTS_PER_EPOCH = readSlotsPerEpoch();
+
+const SLOTS_PER_EPOCH = readConfigValue('SLOTS_PER_EPOCH', () => 6);
+const SECONDS_PER_SLOT = readConfigValue('SECONDS_PER_SLOT', () => 12);
 
 // コンテナ名はサービス種別 + 1始まりインデックスで記録 (例: geth-1,geth-2 / prysm-1,prysm-2)
 function elContainerName(i) { return `geth-${i + 1}`; }
@@ -78,7 +81,8 @@ function initCsvFiles() {
     'ts_ms', 'container_name',
     'basefee_wei', 'gasprice_wei', 'block_gas_used', 'block_gas_limit',
     // Perf metrics merged
-    'txpool_pending', 'p2p_peers', 'block_number', 'block_exec_latency_p95', 'cpu_seconds_total', 'memory_bytes'
+    'txpool_pending', 'p2p_peers', 'block_number', 'block_exec_latency_p95', 'cpu_seconds_total', 'memory_bytes',
+    'block_tx_count'
   ].join(',') + '\n';
 
   const clHeader = [
@@ -108,7 +112,7 @@ function initCsvFiles() {
   const latencyTxHeader = [
     'ts_ms', 'set_name',
     'el_latency', 'cl_latency',
-    'tx_pool_pending', 'block_tx_count',
+    'tx_pool_pending', 'tps',
     'missed_slots'
   ].join(',') + '\n';
 
@@ -205,14 +209,22 @@ async function sampleEl(endpoint, perfData) {
   const containerName = elContainerName(endpoint_idx);
   // el_latency removed
   let basefee = MISSING, gasprice = MISSING, gasUsed = MISSING, gasLimit = MISSING;
+  let blockTxCount = MISSING;
   let errorFlag = 0;
-  // blockTxCount removed (moved to latency-tx)
+  // blockTxCount now collected here
   // syncing (bool) は出力対象外のため取得省略
   try { const { result: gp } = await jsonRpc(endpoint, 'eth_gasPrice', []); gasprice = hexToNum(gp) ?? MISSING; } catch { errorFlag = 1; }
-  // blockNumber removed (moved to perf)
-  // try { const { result: bn, latency: l1 } = await jsonRpc(endpoint, 'eth_blockNumber', []); /* el_latency = l1; blockNumber = hexToNum(bn) ?? MISSING; */ } catch { errorFlag = 1; }
-  try { const { result: blk } = await jsonRpc(endpoint, 'eth_getBlockByNumber', ['latest', false]); if (blk) { basefee = hexToNum(blk.baseFeePerGas) ?? MISSING; gasUsed = hexToNum(blk.gasUsed) ?? MISSING; gasLimit = hexToNum(blk.gasLimit) ?? MISSING; } } catch { errorFlag = 1; }
-  // try { const { result: txc } = await jsonRpc(endpoint, 'eth_getBlockTransactionCountByNumber', ['latest']); blockTxCount = hexToNum(txc) ?? MISSING; } catch { errorFlag = 1; }
+
+  try {
+    const { result: blk } = await jsonRpc(endpoint, 'eth_getBlockByNumber', ['latest', false]);
+    if (blk) {
+      basefee = hexToNum(blk.baseFeePerGas) ?? MISSING;
+      gasUsed = hexToNum(blk.gasUsed) ?? MISSING;
+      gasLimit = hexToNum(blk.gasLimit) ?? MISSING;
+      const txs = blk.transactions;
+      blockTxCount = Array.isArray(txs) ? txs.length : MISSING;
+    }
+  } catch { errorFlag = 1; }
 
   // Merge Perf Data
   const pm = (perfData && perfData[containerName]) || { m1: MISSING, m2: MISSING, m3: MISSING, m6: MISSING, m8: MISSING, m9: MISSING };
@@ -221,7 +233,8 @@ async function sampleEl(endpoint, perfData) {
   appendCsvRow(EL_CSV, [
     ts_ms, containerName,
     basefee, gasprice, gasUsed, gasLimit,
-    pm.m1, pm.m2, pm.m3, pm.m6, pm.m8, pm.m9
+    pm.m1, pm.m2, pm.m3, pm.m6, pm.m8, pm.m9,
+    blockTxCount
   ]);
   return { ts_ms, containerName, basefee, gasprice, gasUsed, gasLimit };
 }
@@ -356,12 +369,20 @@ async function sampleLatencyTx(perfData) {
     }
 
     let blockTxCount = MISSING;
+    let tps = MISSING;
 
-    // 1. Block Tx Count (still need RPC for this as it's specific)
+    // 1. Block metrics (Tx Count & Number & TPS)
     if (elUrl) {
       try {
-        const { result: txc } = await jsonRpc(elUrl, 'eth_getBlockTransactionCountByNumber', ['latest']);
-        blockTxCount = hexToNum(txc) ?? MISSING;
+        const { result: blk } = await jsonRpc(elUrl, 'eth_getBlockByNumber', ['latest', false]);
+        if (blk) {
+          // blockNumber is not saved to latency-tx.csv anymore, but we need tx count for tps
+          const txs = blk.transactions;
+          blockTxCount = Array.isArray(txs) ? txs.length : MISSING;
+          if (blockTxCount !== MISSING && SECONDS_PER_SLOT > 0) {
+            tps = blockTxCount / SECONDS_PER_SLOT;
+          }
+        }
       } catch (e) {
         // failed
       }
@@ -370,7 +391,7 @@ async function sampleLatencyTx(perfData) {
     appendCsvRow(LATENCY_TX_CSV, [
       ts_ms, setName,
       elLatency, clLatency,
-      txPoolPending, blockTxCount,
+      txPoolPending, tps,
       missedSlots
     ]);
   }
